@@ -134,7 +134,13 @@ class HttpLLMGateway(LLMGateway):
         )
         response.raise_for_status()
         data = response.json()
-        return data["choices"][0]["message"]["content"]
+        choices = data.get("choices") or []
+        if not choices:
+            raise RuntimeError("LLM response missing choices.")
+        content = (choices[0].get("message") or {}).get("content")
+        if content is None:
+            raise RuntimeError("LLM response missing message content.")
+        return str(content)
 
     def stream_complete(
         self,
@@ -171,7 +177,10 @@ class HttpLLMGateway(LLMGateway):
                     chunk = json.loads(data)
                 except json.JSONDecodeError:
                     continue
-                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                choices = chunk.get("choices") or []
+                if not choices:
+                    continue
+                delta = choices[0].get("delta", {})
                 content = delta.get("content")
                 if content:
                     yield str(content)

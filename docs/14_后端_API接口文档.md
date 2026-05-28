@@ -920,7 +920,7 @@ GET /market/kline/600000?market=A&period=daily&start_date=2024-01-01&end_date=20
 }
 ```
 
-说明：行情只来自 AKShare。AKShare 不可用时返回 `503 market_data_error`，不返回 mock K 线。
+说明：行情优先来自 AKShare；AKShare 不可用时会请求 Yahoo Chart 作为第二真实源，此时 `data_source=yahoo_chart`。两个真实源都不可用时返回 `503 market_data_error`，不返回 mock K 线。
 
 ## 17. 错误格式
 

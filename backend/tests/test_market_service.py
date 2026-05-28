@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from app.services.market_service import MarketDataError, build_kline_response, normalize_kline_frame
+from app.services.market_service import MarketDataError, build_kline_response, fetch_yahoo_kline, normalize_kline_frame
 
 
 def test_normalize_kline_frame_maps_akshare_columns():
@@ -73,3 +73,73 @@ def test_build_kline_response_raises_when_fetcher_returns_no_rows():
 
     with pytest.raises(MarketDataError, match="No market data"):
         build_kline_response("600000", fetcher=empty_fetcher)
+
+
+def test_build_kline_response_falls_back_to_yahoo_chart_when_akshare_fails():
+    def failing_fetcher(**kwargs):
+        raise RuntimeError("akshare unavailable")
+
+    def yahoo_fetcher(**kwargs):
+        return pd.DataFrame(
+            [
+                {
+                    "date": "2024-01-02",
+                    "open": 7.20,
+                    "close": 7.30,
+                    "high": 7.35,
+                    "low": 7.10,
+                    "volume": 1000,
+                    "amount": 0,
+                }
+            ]
+        )
+
+    response = build_kline_response("600000", fetcher=failing_fetcher, fallback_fetcher=yahoo_fetcher)
+
+    assert response["data_source"] == "yahoo_chart"
+    assert response["kline_data"][0]["date"] == "2024-01-02"
+
+
+def test_fetch_yahoo_kline_maps_a_share_symbol_and_chart_payload(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "chart": {
+                    "result": [
+                        {
+                            "timestamp": [1704153600],
+                            "indicators": {
+                                "quote": [
+                                    {
+                                        "open": [7.2],
+                                        "close": [7.3],
+                                        "high": [7.35],
+                                        "low": [7.1],
+                                        "volume": [1000],
+                                    }
+                                ]
+                            },
+                        }
+                    ],
+                    "error": None,
+                }
+            }
+
+    def fake_get(url, **kwargs):
+        captured["url"] = url
+        captured["kwargs"] = kwargs
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.market_service.httpx.get", fake_get)
+
+    frame = fetch_yahoo_kline(stock_code="600000", market="A", start_date="2024-01-01", end_date="2024-01-10")
+
+    assert "600000.SS" in captured["url"]
+    assert captured["kwargs"]["timeout"] == 20.0
+    assert frame.iloc[0]["date"] == "2024-01-02"
+    assert frame.iloc[0]["close"] == 7.3

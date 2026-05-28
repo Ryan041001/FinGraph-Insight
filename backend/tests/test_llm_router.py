@@ -153,6 +153,25 @@ def test_http_gateway_requires_configured_model_name(monkeypatch):
         )
 
 
+def test_http_gateway_reports_empty_non_stream_choices(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": []}
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("app.services.llm_service.settings.openai_api_key", "shared-key")
+    monkeypatch.setattr("app.services.llm_service.settings.llm_model", MODEL_NAME)
+
+    with pytest.raises(RuntimeError, match="missing choices"):
+        HttpLLMGateway().complete(
+            task=LLMTask.EXTRACTION,
+            messages=[{"role": "user", "content": "抽取实体关系"}],
+        )
+
+
 def test_http_gateway_streams_chunks_through_shared_model_and_base_url(monkeypatch):
     captured = {}
 
@@ -201,3 +220,35 @@ def test_http_gateway_streams_chunks_through_shared_model_and_base_url(monkeypat
     assert captured["json"]["model"] == MODEL_NAME
     assert captured["json"]["stream"] is True
     assert "response_format" not in captured["json"]
+
+
+def test_http_gateway_stream_skips_empty_choice_chunks(monkeypatch):
+    class FakeStreamResponse:
+        def raise_for_status(self):
+            return None
+
+        def iter_lines(self):
+            yield "data: " + json.dumps({"choices": []})
+            yield "data: " + json.dumps({"choices": [{"delta": {"content": "正文"}}]})
+            yield "data: [DONE]"
+
+    class FakeStreamContext:
+        def __enter__(self):
+            return FakeStreamResponse()
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    monkeypatch.setattr("app.services.llm_service.httpx.stream", lambda *args, **kwargs: FakeStreamContext())
+    monkeypatch.setattr("app.services.llm_service.settings.openai_api_key", "shared-key")
+    monkeypatch.setattr("app.services.llm_service.settings.openai_base_url", "https://llm-gateway.example/v1")
+    monkeypatch.setattr("app.services.llm_service.settings.llm_model", MODEL_NAME)
+
+    chunks = list(
+        HttpLLMGateway().stream_complete(
+            task=LLMTask.GRAPH_RAG_STREAM,
+            messages=[{"role": "user", "content": "流式回答"}],
+        )
+    )
+
+    assert chunks == ["正文"]

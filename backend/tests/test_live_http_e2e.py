@@ -165,7 +165,7 @@ def test_live_http_backend_flow_without_external_dependencies(live_server):
     assert kline.status_code in {200, 503}
     kline_payload = kline.json()
     if kline.status_code == 200:
-        assert kline_payload["data_source"] == "akshare"
+        assert kline_payload["data_source"] in {"akshare", "yahoo_chart"}
         assert kline_payload["kline_data"]
         assert kline_payload["events"] == []
     else:

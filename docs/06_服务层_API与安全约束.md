@@ -298,4 +298,4 @@ AKSHARE_UPDATE_CRON=0 */6 * * *
 - `/graph/import` 重复调用不产生重复关系。
 - `/qa/text2cypher` 拒绝 `DELETE`、`SET`、`MERGE`。
 - `/jobs/akshare/run` 能手动触发更新并返回日志。
-- `/market/kline/{stock_code}` 成功时返回 `data_source=akshare`；外部源不可用时返回 `market_data_error`，不返回 mock K 线。
+- `/market/kline/{stock_code}` 成功时返回 `data_source=akshare` 或 `data_source=yahoo_chart`；外部源不可用时返回 `market_data_error`，不返回 mock K 线。
