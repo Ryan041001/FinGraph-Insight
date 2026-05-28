@@ -16,7 +16,7 @@ from app.services.market_service import build_kline_response, get_kline_mock
 from app.services.metrics_service import default_gold_standard_path, evaluate_gold_standard
 from app.services.mock_data import sample_graph
 from app.services.scheduler_service import get_job_run, list_job_runs, run_akshare_update_mock
-from app.services.stock_analysis_service import build_stock_analysis
+from app.services.stock_analysis_service import build_stock_analysis, build_stock_analysis_with_deepseek
 from app.services.llm_service import HttpLLMGateway
 from app.services.text2cypher_service import answer_text2cypher, generate_cypher_with_deepseek
 
@@ -192,7 +192,11 @@ def evaluate_metrics() -> dict:
 @app.post("/analysis/stock")
 def stock_analysis(payload: dict) -> dict:
     if settings.llm_enabled and payload.get("refresh_news"):
-        return build_stock_analysis(payload, news_gateway=HttpLLMGateway())
+        gateway = HttpLLMGateway()
+        enriched = build_stock_analysis(payload, news_gateway=gateway)
+        return build_stock_analysis_with_deepseek(enriched, gateway)
+    if settings.llm_enabled:
+        return build_stock_analysis_with_deepseek(payload, HttpLLMGateway())
     return build_stock_analysis(payload)
 
 

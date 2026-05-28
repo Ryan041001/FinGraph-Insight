@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from app.models.api import GraphPayload
 from app.services.grok_news_service import search_news_events_with_grok
 from app.services.graph_store import graph_store
-from app.services.llm_service import LLMGateway
+from app.services.llm_service import LLMGateway, LLMTask
 
 
 DISCLAIMER = "本结果仅用于课程项目演示和研究辅助，不构成投资建议。"
@@ -44,6 +45,29 @@ def build_stock_analysis(payload: dict[str, Any], news_gateway: LLMGateway | Non
             "disclaimer": DISCLAIMER,
         },
     }
+
+
+def build_stock_analysis_with_deepseek(payload: dict[str, Any], gateway: LLMGateway) -> dict[str, Any]:
+    base = build_stock_analysis(payload)
+    content = gateway.complete(
+        task=LLMTask.STOCK_ANALYSIS,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "你是图谱增强金融研判助手。只能基于输入的 target、fundamentals、news_events、subgraph 生成结构化 JSON。"
+                    "不得输出买入、卖出、目标价或收益承诺。"
+                ),
+            },
+            {"role": "user", "content": json.dumps(base, ensure_ascii=False)},
+        ],
+        temperature=0.1,
+        max_tokens=2048,
+    )
+    analysis = json.loads(content)
+    analysis["disclaimer"] = DISCLAIMER
+    base["analysis"] = analysis
+    return base
 
 
 def _company_industry(graph: GraphPayload) -> str:

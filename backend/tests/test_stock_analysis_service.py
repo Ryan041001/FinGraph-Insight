@@ -1,9 +1,14 @@
-from app.services.stock_analysis_service import build_stock_analysis
+from app.services.stock_analysis_service import build_stock_analysis, build_stock_analysis_with_deepseek
 
 
 class FakeGateway:
     def complete(self, *, task, messages, temperature=0.2, max_tokens=None):
         return '{"events":[{"event_type":"litigation","sentiment":"negative","title":"涉及诉讼","date":"2024-03-15","source_url":"https://example.com","evidence":"公告"}]}'
+
+
+class FakeAnalysisGateway:
+    def complete(self, *, task, messages, temperature=0.2, max_tokens=None):
+        return '{"summary":"需要关注诉讼风险。","opportunity_factors":[],"risk_factors":[{"title":"诉讼风险","reason":"消息面出现诉讼","evidence_ids":["rel_1"],"severity":"medium"}],"graph_insights":[{"title":"图谱路径","path":"a->b","evidence_ids":["rel_1"]}],"confidence":0.81,"missing_data":[]}'
 
 
 def test_build_stock_analysis_binds_graph_evidence_and_disclaimer():
@@ -39,3 +44,14 @@ def test_build_stock_analysis_can_refresh_news_with_grok_gateway():
 
     assert response["news_events"][0]["title"] == "涉及诉讼"
     assert response["news_events"][0]["source_url"] == "https://example.com"
+
+
+def test_build_stock_analysis_with_deepseek_overrides_analysis_block():
+    response = build_stock_analysis_with_deepseek(
+        {"stock_code": "600000", "company_name": "浦发银行"},
+        gateway=FakeAnalysisGateway(),
+    )
+
+    assert response["analysis"]["summary"] == "需要关注诉讼风险。"
+    assert response["analysis"]["risk_factors"][0]["title"] == "诉讼风险"
+    assert response["analysis"]["disclaimer"] == "本结果仅用于课程项目演示和研究辅助，不构成投资建议。"
