@@ -37,6 +37,7 @@ LLM_USER_AGENT = (
     "AppleWebKit/537.36 Chrome/126 Safari/537.36"
 )
 RETRYABLE_LLM_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504}
+_LLM_CIRCUIT_BREAKERS: dict[LLMTask, dict[str, float]] = {}
 
 
 def select_model_profile(task: LLMTask) -> ModelProfile:
@@ -173,17 +174,23 @@ class HttpLLMGateway(LLMGateway):
             tool_choice=tool_choice,
         )
         endpoint = f"{_base_url(profile.provider).rstrip('/')}/chat/completions"
-        response = _post_chat_completion(endpoint, payload, timeout=_timeout_for_task(task))
-        data = response.json()
-        choices = data.get("choices") or []
-        if not choices:
-            raise RuntimeError("LLM response missing choices.")
-        message = choices[0].get("message") or {}
-        content = message.get("content")
-        if content is None:
-            if message.get("tool_calls"):
-                raise RuntimeError("LLM response returned tool_calls, but no tool dispatcher is configured.")
-            raise RuntimeError("LLM response missing message content.")
+        _ensure_llm_circuit_closed(task)
+        try:
+            response = _post_chat_completion(endpoint, payload, timeout=_timeout_for_task(task))
+            data = response.json()
+            choices = data.get("choices") or []
+            if not choices:
+                raise RuntimeError("LLM response missing choices.")
+            message = choices[0].get("message") or {}
+            content = message.get("content")
+            if content is None:
+                if message.get("tool_calls"):
+                    raise RuntimeError("LLM response returned tool_calls, but no tool dispatcher is configured.")
+                raise RuntimeError("LLM response missing message content.")
+        except Exception:
+            _record_llm_failure(task)
+            raise
+        _record_llm_success(task)
         return str(content)
 
     def stream_complete(
@@ -220,6 +227,7 @@ class HttpLLMGateway(LLMGateway):
         endpoint = f"{_base_url(profile.provider).rstrip('/')}/chat/completions"
         attempts = max(1, int(settings.llm_max_retries) + 1)
         timeout = _timeout_for_task(task)
+        _ensure_llm_circuit_closed(task)
         for attempt_index in range(attempts):
             yielded_any = False
             try:
@@ -236,6 +244,7 @@ class HttpLLMGateway(LLMGateway):
                             continue
                         data = line[6:].strip() if line.startswith("data: ") else line.strip()
                         if data == "[DONE]":
+                            _record_llm_success(task)
                             return
                         try:
                             chunk = json.loads(data)
@@ -249,9 +258,11 @@ class HttpLLMGateway(LLMGateway):
                         if content:
                             yielded_any = True
                             yield str(content)
+                    _record_llm_success(task)
                     return
             except Exception as exc:
                 if yielded_any or attempt_index >= attempts - 1 or not _is_retryable_llm_error(exc):
+                    _record_llm_failure(task)
                     raise
                 backoff = max(0.0, float(settings.llm_retry_backoff_seconds)) * (2 ** attempt_index)
                 if backoff:
@@ -309,3 +320,30 @@ def _timeout_for_task(task: LLMTask) -> int:
     if task in {LLMTask.GRAPH_RAG_STREAM, LLMTask.STOCK_ANALYSIS_STREAM}:
         return settings.llm_stream_timeout_seconds
     return settings.llm_timeout_seconds
+
+
+def _ensure_llm_circuit_closed(task: LLMTask) -> None:
+    if settings.llm_circuit_breaker_failures <= 0:
+        return
+    state = _LLM_CIRCUIT_BREAKERS.get(task)
+    if not state:
+        return
+    opened_until = state.get("opened_until", 0)
+    if opened_until:
+        if opened_until > time.time():
+            raise RuntimeError(f"LLM circuit breaker is open for task {task.value}.")
+        _LLM_CIRCUIT_BREAKERS.pop(task, None)
+
+
+def _record_llm_failure(task: LLMTask) -> None:
+    threshold = settings.llm_circuit_breaker_failures
+    if threshold <= 0:
+        return
+    state = _LLM_CIRCUIT_BREAKERS.setdefault(task, {"failures": 0.0, "opened_until": 0.0})
+    state["failures"] += 1
+    if state["failures"] >= threshold:
+        state["opened_until"] = time.time() + max(0, settings.llm_circuit_breaker_cooldown_seconds)
+
+
+def _record_llm_success(task: LLMTask) -> None:
+    _LLM_CIRCUIT_BREAKERS.pop(task, None)

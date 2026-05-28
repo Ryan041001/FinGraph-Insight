@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     llm_stream_timeout_seconds: int = Field(default=120, alias="LLM_STREAM_TIMEOUT_SECONDS")
     llm_max_retries: int = Field(default=1, alias="LLM_MAX_RETRIES")
     llm_retry_backoff_seconds: float = Field(default=0.2, alias="LLM_RETRY_BACKOFF_SECONDS")
+    llm_circuit_breaker_failures: int = Field(default=3, alias="LLM_CIRCUIT_BREAKER_FAILURES")
+    llm_circuit_breaker_cooldown_seconds: int = Field(default=30, alias="LLM_CIRCUIT_BREAKER_COOLDOWN_SECONDS")
     graph_backend: str = Field(default="memory", alias="GRAPH_BACKEND")
     market_live_enabled: bool = Field(default=True, alias="MARKET_LIVE_ENABLED")
     market_kline_cache_ttl_seconds: int = Field(default=300, alias="MARKET_KLINE_CACHE_TTL_SECONDS")

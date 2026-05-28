@@ -29,9 +29,11 @@ LLM_NEWS_TIMEOUT_SECONDS=90
 LLM_STREAM_TIMEOUT_SECONDS=120
 LLM_MAX_RETRIES=1
 LLM_RETRY_BACKOFF_SECONDS=0.2
+LLM_CIRCUIT_BREAKER_FAILURES=3
+LLM_CIRCUIT_BREAKER_COOLDOWN_SECONDS=30
 ```
 
-说明：后端不再区分多套模型路由。抽取、裁判、Text2Cypher、GraphRAG、股票研判、新闻补充都使用同一个 `LLM_MODEL`；新闻补充任务只是在同一模型调用中额外附带 web search tool。LLM 请求会附带浏览器风格 `User-Agent` 和 `Accept: application/json`；非流式调用对连接错误、超时、429 和 5xx 做有限重试，流式调用在首包前失败时也会重试；Text2Cypher、新闻和流式任务可单独配置超时。
+说明：后端不再区分多套模型路由。抽取、裁判、Text2Cypher、GraphRAG、股票研判、新闻补充都使用同一个 `LLM_MODEL`；新闻补充任务只是在同一模型调用中额外附带 web search tool。LLM 请求会附带浏览器风格 `User-Agent` 和 `Accept: application/json`；非流式调用对连接错误、超时、429 和 5xx 做有限重试，流式调用在首包前失败时也会重试；Text2Cypher、新闻和流式任务可单独配置超时；连续失败达到阈值后会短时熔断，避免每次请求都等待上游超时。
 
 AI HTML 输出约束：
 

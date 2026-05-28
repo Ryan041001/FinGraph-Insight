@@ -324,6 +324,49 @@ def test_http_gateway_retries_transient_transport_errors(monkeypatch):
     assert len(attempts) == 2
 
 
+def test_http_gateway_opens_circuit_after_repeated_failures(tmp_path, monkeypatch):
+    attempts = []
+    current_time = 1_000.0
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "OPENAI_API_KEY=shared-key",
+                f"LLM_MODEL={MODEL_NAME}",
+                "LLM_MAX_RETRIES=0",
+                "LLM_CIRCUIT_BREAKER_FAILURES=2",
+                "LLM_CIRCUIT_BREAKER_COOLDOWN_SECONDS=60",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_post(url, headers, json, timeout):
+        attempts.append(url)
+        raise httpx.ConnectError("connection reset")
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.llm_service.time.time", lambda: current_time)
+    monkeypatch.setattr("app.services.llm_service.settings", Settings(_env_file=env_path))
+    monkeypatch.setattr("app.services.llm_service._LLM_CIRCUIT_BREAKERS", {}, raising=False)
+
+    gateway = HttpLLMGateway()
+    for _ in range(2):
+        with pytest.raises(httpx.ConnectError):
+            gateway.complete(
+                task=LLMTask.EXTRACTION,
+                messages=[{"role": "user", "content": "输出 JSON"}],
+            )
+
+    with pytest.raises(RuntimeError, match="circuit breaker"):
+        gateway.complete(
+            task=LLMTask.EXTRACTION,
+            messages=[{"role": "user", "content": "输出 JSON"}],
+        )
+
+    assert len(attempts) == 2
+
+
 def test_http_gateway_requires_configured_model_name(monkeypatch):
     monkeypatch.setattr("app.services.llm_service.settings.openai_api_key", "shared-key")
     monkeypatch.setattr("app.services.llm_service.settings.llm_model", "")
