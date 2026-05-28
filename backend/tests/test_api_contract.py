@@ -691,6 +691,87 @@ def test_text2cypher_returns_json_response_on_validation_failure(monkeypatch):
     assert "Foo" in payload["message"]
 
 
+def test_validation_errors_use_unified_error_envelope():
+    response = client.get("/graph/subgraph")
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["error"] == "invalid_input"
+    assert payload["message"]
+    assert payload["fields"][0]["field"] == "query.entity"
+    assert payload["fields"][0]["type"] == "missing"
+
+
+def test_extract_rejects_blank_and_oversized_text():
+    blank = client.post("/extract", json={"text": "   "})
+    assert blank.status_code == 422
+    assert blank.json()["error"] == "invalid_input"
+    assert any("non-empty" in field["message"] for field in blank.json()["fields"])
+
+    too_long = client.post("/extract", json={"text": "a" * 9000})
+    assert too_long.status_code == 422
+    assert too_long.json()["error"] == "invalid_input"
+    assert any("8000" in field["message"] for field in too_long.json()["fields"])
+
+
+def test_company_endpoint_marks_missing_entities_with_found_false():
+    from app.services.graph_store import graph_store
+
+    graph_store.clear()
+    response = client.get("/graph/company/不存在的测试公司EE99")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["found"] is False
+    assert payload["graph"]["nodes"] == []
+
+
+def test_llm_error_message_is_sanitized_in_response(monkeypatch):
+    class LeakyGateway:
+        def complete(self, **kwargs):
+            raise RuntimeError(
+                "Client error '401 Unauthorized' for url 'https://ai.example.com/v1/chat/completions'"
+            )
+
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: LeakyGateway())
+
+    response = client.post(
+        "/extract",
+        json={"text": "测试文本", "options": {"self_refine": False, "judge": False}},
+    )
+
+    assert response.status_code == 502
+    message = response.json()["detail"]["message"]
+    assert "https://ai.example.com" not in message
+    assert "<llm endpoint>" in message
+
+
+def test_dataset_loader_is_cached_across_imports(monkeypatch, tmp_path):
+    from app.main import _DATASET_CACHE, _DATASET_CACHE_LOCK
+    from app.models.api import GraphNode, GraphPayload
+
+    with _DATASET_CACHE_LOCK:
+        _DATASET_CACHE.clear()
+
+    call_count = {"value": 0}
+
+    def fake_loader(path):
+        call_count["value"] += 1
+        return GraphPayload(
+            nodes=[GraphNode(id="company_dataset_cached", label="缓存企业", type="Company", properties={"name": "缓存企业"})],
+            edges=[],
+        )
+
+    monkeypatch.setattr("app.main.load_financial_dataset_directory", fake_loader)
+
+    first = client.post("/datasets/import", json={"dataset": "financial_datasets"})
+    second = client.post("/datasets/import", json={"dataset": "financial_datasets"})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert call_count["value"] == 1
+
+
 def test_stock_analysis_cache_evicts_oldest_when_over_capacity(monkeypatch):
     monkeypatch.setattr("app.main.settings.stock_analysis_cache_max_size", 2)
     monkeypatch.setattr("app.main.HttpLLMGateway", lambda: FailingGateway())

@@ -1,6 +1,9 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+MAX_EXTRACT_TEXT_LENGTH = 8000
 
 
 class GraphNode(BaseModel):
@@ -43,6 +46,18 @@ class ExtractOptions(BaseModel):
 class ExtractRequest(BaseModel):
     text: str
     options: ExtractOptions = Field(default_factory=ExtractOptions)
+
+    @field_validator("text")
+    @classmethod
+    def _text_not_empty(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("text must be a non-empty string.")
+        if len(value) > MAX_EXTRACT_TEXT_LENGTH:
+            raise ValueError(
+                f"text length must be <= {MAX_EXTRACT_TEXT_LENGTH} characters."
+            )
+        return value
 
 
 class Text2CypherRequest(BaseModel):

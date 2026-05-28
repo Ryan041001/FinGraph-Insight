@@ -17,3 +17,14 @@ def _reset_neo4j_driver_cache():
     reset_neo4j_driver_cache()
     yield
     reset_neo4j_driver_cache()
+
+
+@pytest.fixture(autouse=True)
+def _reset_dataset_cache():
+    from app.main import _DATASET_CACHE, _DATASET_CACHE_LOCK
+
+    with _DATASET_CACHE_LOCK:
+        _DATASET_CACHE.clear()
+    yield
+    with _DATASET_CACHE_LOCK:
+        _DATASET_CACHE.clear()

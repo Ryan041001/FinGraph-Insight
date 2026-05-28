@@ -271,23 +271,54 @@ class InMemoryGraphStore:
 
     @staticmethod
     def _merge_node(current: GraphNode, incoming: GraphNode) -> GraphNode:
+        new_label = incoming.label or current.label
+        new_type = incoming.type or current.type
+        new_risk_level = incoming.risk_level or current.risk_level
+        if incoming.properties:
+            merged_properties = {**current.properties, **incoming.properties}
+        else:
+            merged_properties = current.properties
+        if (
+            new_label == current.label
+            and new_type == current.type
+            and new_risk_level == current.risk_level
+            and merged_properties == current.properties
+        ):
+            return current
         return current.model_copy(
             update={
-                "label": incoming.label or current.label,
-                "type": incoming.type or current.type,
-                "properties": {**current.properties, **incoming.properties},
-                "risk_level": incoming.risk_level or current.risk_level,
+                "label": new_label,
+                "type": new_type,
+                "properties": merged_properties,
+                "risk_level": new_risk_level,
             }
         )
 
     @staticmethod
     def _merge_edge(current: GraphEdge, incoming: GraphEdge) -> GraphEdge:
+        new_confidence = max(current.confidence, incoming.confidence)
+        new_status = incoming.status or current.status
+        if incoming.properties:
+            merged_properties = {**current.properties, **incoming.properties}
+        else:
+            merged_properties = current.properties
+        if incoming.provenance:
+            merged_provenance = {**current.provenance, **incoming.provenance}
+        else:
+            merged_provenance = current.provenance
+        if (
+            new_confidence == current.confidence
+            and new_status == current.status
+            and merged_properties == current.properties
+            and merged_provenance == current.provenance
+        ):
+            return current
         return current.model_copy(
             update={
-                "confidence": max(current.confidence, incoming.confidence),
-                "status": incoming.status or current.status,
-                "properties": {**current.properties, **incoming.properties},
-                "provenance": {**current.provenance, **incoming.provenance},
+                "confidence": new_confidence,
+                "status": new_status,
+                "properties": merged_properties,
+                "provenance": merged_provenance,
             }
         )
 

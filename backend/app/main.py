@@ -1,12 +1,14 @@
 from pathlib import Path
 from contextlib import asynccontextmanager
 import json
+import re
 from collections import OrderedDict
 from collections.abc import Iterable
 from queue import Empty, Queue
 from threading import RLock, Thread
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse
@@ -106,9 +108,44 @@ def _raise_llm_error(exc: Exception) -> None:
         status_code=502,
         detail={
             "error": "llm_error",
-            "message": str(exc),
+            "message": _sanitize_llm_error_message(str(exc)),
         },
     ) from exc
+
+
+_LLM_ERROR_URL_PATTERN = re.compile(r"https?://\S+", flags=re.IGNORECASE)
+
+
+def _sanitize_llm_error_message(message: str) -> str:
+    if not message:
+        return "上游模型服务暂时不可用，请稍后重试。"
+    sanitized = _LLM_ERROR_URL_PATTERN.sub("<llm endpoint>", message)
+    sanitized = sanitized.replace("\n", " ").strip()
+    if len(sanitized) > 240:
+        sanitized = sanitized[:237] + "..."
+    return sanitized
+
+
+@app.exception_handler(RequestValidationError)
+async def _request_validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    field_errors = []
+    for error in exc.errors():
+        location = ".".join(str(part) for part in error.get("loc", ()) if part not in {"body"})
+        field_errors.append(
+            {
+                "field": location or "(root)",
+                "message": error.get("msg", "invalid value"),
+                "type": error.get("type", "value_error"),
+            }
+        )
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "invalid_input",
+            "message": "请求参数校验失败。",
+            "fields": field_errors,
+        },
+    )
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -145,6 +182,34 @@ def import_dataset(payload: dict | None = None) -> dict:
     }
 
 
+_DATASET_CACHE: dict[str, tuple[float, object]] = {}
+_DATASET_CACHE_LOCK = RLock()
+
+
+def _dataset_signature(dataset_path: Path) -> float:
+    latest = 0.0
+    for entry in dataset_path.rglob("*"):
+        if entry.is_file():
+            try:
+                latest = max(latest, entry.stat().st_mtime)
+            except OSError:
+                continue
+    return latest
+
+
+def _load_dataset_graph_cached(dataset_path: Path):
+    cache_key = str(dataset_path.resolve())
+    signature = _dataset_signature(dataset_path)
+    with _DATASET_CACHE_LOCK:
+        cached = _DATASET_CACHE.get(cache_key)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+    graph = load_financial_dataset_directory(dataset_path)
+    with _DATASET_CACHE_LOCK:
+        _DATASET_CACHE[cache_key] = (signature, graph)
+    return graph
+
+
 def _load_dataset_graph(dataset: str):
     if dataset == "financial_datasets":
         project_root = Path(__file__).resolve().parents[2]
@@ -155,7 +220,7 @@ def _load_dataset_graph(dataset: str):
         for dataset_path in candidate_paths:
             if not dataset_path.exists():
                 continue
-            graph = load_financial_dataset_directory(dataset_path)
+            graph = _load_dataset_graph_cached(dataset_path)
             if graph.nodes:
                 return graph
     raise HTTPException(
@@ -199,7 +264,12 @@ def import_graph(payload: dict) -> dict:
 
 @app.get("/graph/company/{name}")
 def get_company_profile(name: str, depth: int = 2, include_pending: bool = False) -> dict:
-    return company_profile(name, depth=depth)
+    payload = company_profile(name, depth=depth)
+    graph = payload.get("graph") or {}
+    nodes = graph.get("nodes") or []
+    edges = graph.get("edges") or []
+    payload["found"] = bool(nodes or edges)
+    return payload
 
 
 @app.get("/graph/subgraph")
@@ -562,7 +632,10 @@ def _sse_stream(token_stream: Iterable[str], metadata: dict) -> StreamingRespons
                 break
 
             if event_type == "error":
-                yield _sse_event("error", {"error": "llm_error", "message": str(value)})
+                yield _sse_event(
+                    "error",
+                    {"error": "llm_error", "message": _sanitize_llm_error_message(str(value))},
+                )
                 break
 
     return StreamingResponse(events(), media_type="text/event-stream")

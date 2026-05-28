@@ -129,12 +129,8 @@ def fetch_yfinance_kline(**kwargs) -> pd.DataFrame:
         frame.columns = [str(column[0]) for column in frame.columns]
 
     rows = []
-    for _, row in frame.reset_index().fillna(0).iterrows():
-        row_date = _field(row, "Date", "Datetime", "date")
-        if hasattr(row_date, "date"):
-            normalized_date = row_date.date().isoformat()
-        else:
-            normalized_date = str(row_date)
+    for timestamp, row in frame.fillna(0).iterrows():
+        normalized_date = _normalize_timestamp(timestamp)
         rows.append(
             {
                 "date": normalized_date,
@@ -147,6 +143,21 @@ def fetch_yfinance_kline(**kwargs) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def _normalize_timestamp(value: object) -> str:
+    if hasattr(value, "date"):
+        try:
+            return value.date().isoformat()
+        except Exception:
+            pass
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()[:10]
+        except Exception:
+            pass
+    text = str(value)
+    return text[:10] if text else ""
 
 
 def fetch_yahoo_kline(**kwargs) -> pd.DataFrame:
