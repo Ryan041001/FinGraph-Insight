@@ -957,6 +957,49 @@ def test_market_kline_rejects_unsupported_period(monkeypatch):
     assert any("period" in field["field"] for field in response.json()["fields"])
 
 
+def test_preload_endpoint_reports_current_state():
+    response = client.get("/preload")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "dataset_status" in payload
+    assert payload["dataset_status"] in {"skipped", "running", "ready", "failed"}
+    assert "akshare_status" in payload
+
+
+def test_startup_preload_worker_imports_dataset(monkeypatch):
+    from app.services.graph_store import graph_store
+    from app.models.api import GraphNode, GraphPayload
+    import app.main as main_module
+
+    graph_store.clear()
+    with main_module._PRELOAD_STATE_LOCK:
+        main_module._PRELOAD_STATE.update({"dataset_status": "skipped", "akshare_status": "skipped", "error": None})
+
+    fake_graph = GraphPayload(
+        nodes=[GraphNode(id="company_preload_test", label="预加载公司", type="Company", properties={"name": "预加载公司"})],
+        edges=[],
+    )
+
+    monkeypatch.setattr("app.main.settings.startup_preload_dataset", True)
+    monkeypatch.setattr("app.main.settings.startup_refresh_akshare", False)
+    monkeypatch.setattr("app.main._load_dataset_graph", lambda dataset: fake_graph)
+
+    main_module._start_startup_preload()
+
+    import time
+    deadline = time.time() + 3
+    while time.time() < deadline:
+        snapshot = main_module._snapshot_preload_state()
+        if snapshot["dataset_status"] in {"ready", "failed"}:
+            break
+        time.sleep(0.05)
+
+    snapshot = main_module._snapshot_preload_state()
+    assert snapshot["dataset_status"] == "ready", snapshot
+    assert snapshot["dataset_nodes"] >= 1
+
+
 def test_text2cypher_memory_mode_returns_note_instead_of_full_graph(monkeypatch):
     from app.services.graph_store import graph_store
     from app.models.api import GraphNode, GraphPayload

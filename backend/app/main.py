@@ -57,11 +57,80 @@ from app.services.vector_store import vector_store
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     start_scheduler()
+    _start_startup_preload()
     try:
         yield
     finally:
         shutdown_scheduler()
         close_neo4j_driver()
+
+
+_PRELOAD_STATE: dict[str, object] = {
+    "dataset_status": "skipped",
+    "dataset_started_at": None,
+    "dataset_finished_at": None,
+    "dataset_nodes": 0,
+    "dataset_relationships": 0,
+    "akshare_status": "skipped",
+    "akshare_job_run_id": None,
+    "error": None,
+}
+_PRELOAD_STATE_LOCK = RLock()
+
+
+def _update_preload_state(updates: dict) -> None:
+    with _PRELOAD_STATE_LOCK:
+        _PRELOAD_STATE.update(updates)
+
+
+def _snapshot_preload_state() -> dict:
+    with _PRELOAD_STATE_LOCK:
+        return dict(_PRELOAD_STATE)
+
+
+def _start_startup_preload() -> None:
+    if not settings.startup_preload_dataset and not settings.startup_refresh_akshare:
+        return
+
+    def worker() -> None:
+        from datetime import datetime
+
+        if settings.startup_preload_dataset:
+            _update_preload_state({
+                "dataset_status": "running",
+                "dataset_started_at": datetime.now().isoformat(timespec="seconds"),
+                "error": None,
+            })
+            try:
+                graph = _load_dataset_graph("financial_datasets")
+                stats = import_graph_runtime(graph)
+                _update_preload_state({
+                    "dataset_status": "ready",
+                    "dataset_finished_at": datetime.now().isoformat(timespec="seconds"),
+                    "dataset_nodes": getattr(stats, "nodes_created", 0) + getattr(stats, "nodes_matched", 0),
+                    "dataset_relationships": getattr(stats, "relationships_created", 0) + getattr(stats, "relationships_skipped", 0),
+                })
+            except Exception as exc:
+                _update_preload_state({
+                    "dataset_status": "failed",
+                    "dataset_finished_at": datetime.now().isoformat(timespec="seconds"),
+                    "error": str(exc)[:240],
+                })
+
+        if settings.startup_refresh_akshare:
+            try:
+                job = start_akshare_update_async()
+                _update_preload_state({
+                    "akshare_status": "running",
+                    "akshare_job_run_id": job.job_run_id,
+                })
+            except Exception as exc:
+                _update_preload_state({
+                    "akshare_status": "failed",
+                    "error": str(exc)[:240],
+                })
+
+    Thread(target=worker, daemon=True).start()
 
 
 app = FastAPI(title="Financial KG API", version="0.1.0", lifespan=lifespan)
@@ -153,6 +222,11 @@ async def _request_validation_exception_handler(request: Request, exc: RequestVa
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="ok", neo4j=_graph_health_status(), scheduler=scheduler_status())
+
+
+@app.get("/preload")
+def get_preload_state() -> dict:
+    return _snapshot_preload_state()
 
 
 def _graph_health_status() -> str:

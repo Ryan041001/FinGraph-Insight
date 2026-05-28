@@ -84,6 +84,8 @@ AKSHARE_UPDATE_CRON=0 */6 * * *
 CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 STOCK_ANALYSIS_CACHE_MAX_SIZE=64
 JOB_RUN_HISTORY_MAX_SIZE=50
+STARTUP_PRELOAD_DATASET=true            # 启动时自动后台导入 financial_datasets
+STARTUP_REFRESH_AKSHARE=false           # 启动时自动触发一次 AKShare 增量刷新（耗 LLM 额度）
 ```
 
 CORS:默认仅放行 `localhost:5173`(本地 Vite 默认端口),可配置 CSV 多源;若设置为 `*` 则 `allow_credentials` 自动关闭。
@@ -148,6 +150,17 @@ LLM 上游报错时,后端会把消息中的所有 URL 替换为 `<llm endpoint>
 
 `status` 可能值:`confirmed`、`pending_review`、`rejected`。前端默认只展示 `confirmed`,溯源面板可展开 `pending_review`。
 
+`confidence` 不再恒为 1.0。数据集来源的 edges 按证据完整性分级:
+
+| 证据 | confidence |
+| --- | --- |
+| amount 完整 + date 完整 | 1.0 |
+| amount 含"未披露/未公开/未透露" | 0.75 |
+| amount 或 date 缺其一 | 0.85 |
+| amount 与 date 均缺 | 0.7 |
+
+LLM 抽取来源的 edges 由 `judge` 阶段给出 confidence;前端可统一按 `confidence < 0.85` 显示为弱证据。
+
 ---
 
 ## 2. 健康检查
@@ -168,6 +181,38 @@ LLM 上游报错时,后端会把消息中的所有 URL 替换为 `<llm endpoint>
 
 - `neo4j` 可能值:`memory`(默认内存)、`ok`(neo4j 探活通过)、`unavailable`(配置了 neo4j 但连不通)。
 - `scheduler` 可能值:`running`、`configured`、`disabled`。
+
+### `GET /preload`
+
+用途:查询启动 preload 任务状态。前端可在 splash/loading 页轮询此接口直到 `dataset_status="ready"` 再进入主界面。
+
+响应示例:
+
+```json
+{
+  "dataset_status": "ready",
+  "dataset_started_at": "2026-05-29T02:25:43",
+  "dataset_finished_at": "2026-05-29T02:26:01",
+  "dataset_nodes": 56100,
+  "dataset_relationships": 4772,
+  "akshare_status": "skipped",
+  "akshare_job_run_id": null,
+  "error": null
+}
+```
+
+字段说明:
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `dataset_status` | `skipped`\|`running`\|`ready`\|`failed` | 数据集 preload 状态 |
+| `dataset_nodes` | int | preload 完成后的总节点数(含已存在) |
+| `dataset_relationships` | int | preload 完成后的总边数 |
+| `akshare_status` | `skipped`\|`running`\|`failed` | AKShare 自动刷新状态;成功后会进入 `running`,具体进度看 `/jobs/{akshare_job_run_id}` |
+| `akshare_job_run_id` | string \| null | 关联的 JobRun ID,可用于查 `/jobs/{id}` |
+| `error` | string \| null | 最近一次失败的错误消息(已脱敏) |
+
+实测:`STARTUP_PRELOAD_DATASET=true`(默认)时,后端启动后约 14-18 秒内 `dataset_status` 由 `skipped` → `running` → `ready`,期间业务接口可以访问(`/graph/company` 等会返回空,直到 ready);完成后 56100 节点 + 4772 边已经在内存中,无需用户手动点击导入。
 
 ---
 
@@ -337,7 +382,29 @@ LLM 不可用 / 上游异常时返回 `502 llm_error`。
 
 - **`found`**: `true` 表示图谱里存在该实体且有节点/边;`false` 表示未匹配。前端可一次判断,避免依靠 `graph.nodes.length === 0`(歧义)。
 
-`profile.shareholders / hidden_relations / risk_flags` 目前**始终为空数组**(数据集不提供股权比例与风险标记),前端建议默认折叠这些 section 或显示"数据集未提供"。
+`profile.shareholders / hidden_relations` 当前**始终为空数组**(数据集不提供股权比例),前端建议默认折叠对应 section 或显示"数据集未提供"。
+
+`profile.risk_flags` 不再是占位空数组。后端基于图谱拓扑推断 3 类风险标记:
+
+```json
+{
+  "code": "single_investor_dependence",
+  "label": "单一投资方依赖",
+  "severity": "medium",
+  "description": "该企业目前仅记录 1 家投资方,存在融资来源单一风险",
+  "evidence": "孤独资本"
+}
+```
+
+可能的 code:
+
+| code | severity | 触发条件 |
+| --- | --- | --- |
+| `single_investor_dependence` | medium | 该公司所有融资事件的投资方去重后只有 1 家 |
+| `event_density_high` | low | 同一公历年内 ≥ 3 起融资事件 |
+| `amount_undisclosed` | low | 融资事件中 ≥ 50% 的 amount 字段为空或含"未披露/未公开/未透露" |
+
+无触发时返回空数组(向后兼容)。前端建议根据 `severity` 选择徽章颜色,`evidence` 字段可点击展开详情。
 
 ---
 
@@ -422,13 +489,66 @@ LLM 不可用 / 上游异常时返回 `502 llm_error`。
         {"label": "端测云链科技有限公司", "type": "Company"}
       ],
       "edges": [],
-      "length": 2
+      "length": 2,
+      "summary": {
+        "relationship_counts": { "INVESTED_IN": 1, "RECEIVED_FUNDING": 1 },
+        "intermediate_events": [
+          { "id": "event_xxx", "label": "端测云链Pre-A轮融资事件", "properties": {"round": "Pre-A轮", "amount": "1200万元"} }
+        ],
+        "intermediate_actors": [],
+        "hop_count": 2
+      }
     }
   ]
 }
 ```
 
-`source == target` 时返回 `length=0` 的自环路径。
+`summary` 字段说明:
+
+| 字段 | 说明 |
+| --- | --- |
+| `relationship_counts` | 路径上各关系类型出现次数,方便前端判断"经过几次投资关系" |
+| `intermediate_events` | 路径中(去掉首尾节点)出现的事件节点 |
+| `intermediate_actors` | 路径中出现的中间公司或机构 |
+| `hop_count` | 边数,等同 `length` |
+
+`source == target` 时返回 `length=0` 的自环路径(summary 也存在但为空)。
+
+### `GET /graph/common-investors`
+
+用途:发现两家(或多家)公司之间的**共同投资方**,用于关联交易和资本关系穿透。
+
+| 参数 | 类型 | 必填 | 范围 | 说明 |
+| --- | --- | --- | --- | --- |
+| `companies` | string | 是 | ≥ 2 | 多个公司名用英文逗号分隔。少于 2 个返 400 `invalid_input` |
+| `limit` | int | 否 | 1-200 | 默认 50 |
+
+请求示例:
+
+```text
+GET /graph/common-investors?companies=阿尔法科技,贝塔科技&limit=10
+```
+
+响应:
+
+```json
+{
+  "companies": ["阿尔法科技", "贝塔科技"],
+  "total": 1,
+  "investors": [
+    {
+      "investor": { "id": "institution_shared", "name": "共投资本", "type": "Institution" },
+      "shared_company_count": 2,
+      "shared_events": [
+        { "id": "event_alpha_a", "label": "阿尔法A轮", "round": "A轮", "date": "2023-01-01" },
+        { "id": "event_beta_a", "label": "贝塔A轮", "round": "A轮", "date": "2023-05-01" }
+      ]
+    }
+  ]
+}
+```
+
+按 `shared_events` 数降序排序。任一公司不存在(包括模糊匹配也找不到)时直接返回 `total=0, investors=[]`。
 
 ---
 

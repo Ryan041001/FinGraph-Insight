@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     )
     stock_analysis_cache_max_size: int = Field(default=64, alias="STOCK_ANALYSIS_CACHE_MAX_SIZE")
     job_run_history_max_size: int = Field(default=50, alias="JOB_RUN_HISTORY_MAX_SIZE")
+    startup_preload_dataset: bool = Field(default=True, alias="STARTUP_PRELOAD_DATASET")
+    startup_refresh_akshare: bool = Field(default=False, alias="STARTUP_REFRESH_AKSHARE")
 
     @property
     def llm_enabled(self) -> bool:
