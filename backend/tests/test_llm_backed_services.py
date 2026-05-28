@@ -1,0 +1,89 @@
+from app.services.extraction_service import extract_with_deepseek
+from app.services.text2cypher_service import generate_cypher_with_deepseek
+from tests.test_api_contract import client
+
+
+class FakeGateway:
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.calls = []
+
+    def complete(self, *, task, messages, temperature=0.2, max_tokens=None):
+        self.calls.append(
+            {
+                "task": task,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+        )
+        return self.content
+
+
+def test_extract_with_deepseek_parses_structured_json():
+    gateway = FakeGateway(
+        """
+        {
+          "entities": [
+            {"name": "星河数据", "type": "Company", "evidence": "星河数据完成B轮融资"},
+            {"name": "红杉资本", "type": "Institution", "evidence": "红杉资本领投"},
+            {"name": "B轮融资", "type": "Event", "evidence": "B轮融资"}
+          ],
+          "relationships": [
+            {
+              "head": "红杉资本",
+              "relation": "INVESTED_IN",
+              "tail": "B轮融资",
+              "attributes": {"role": "领投", "round": "B轮"},
+              "evidence": "星河数据完成B轮融资，红杉资本领投。",
+              "confidence": 0.93
+            }
+          ],
+          "warnings": []
+        }
+        """
+    )
+
+    payload = extract_with_deepseek("星河数据完成B轮融资，红杉资本领投。", gateway)
+
+    assert payload["entities"][0]["name"] == "星河数据"
+    assert payload["relationships"][0]["relation"] == "INVESTED_IN"
+    assert payload["relationships"][0]["status"] == "confirmed"
+    assert gateway.calls[0]["task"] == "extraction"
+
+
+def test_generate_cypher_with_deepseek_sanitizes_model_output():
+    gateway = FakeGateway('{"cypher": "MATCH (c:Company) RETURN c"}')
+
+    cypher, rules = generate_cypher_with_deepseek("查询所有公司", gateway)
+
+    assert cypher == "MATCH (c:Company) RETURN c LIMIT 50"
+    assert "limit_added" in rules
+    assert gateway.calls[0]["task"] == "text2cypher"
+
+
+def test_extract_route_uses_configured_llm_when_enabled(monkeypatch):
+    gateway = FakeGateway(
+        '{"entities":[{"name":"天河科技","type":"Company","evidence":"天河科技完成A轮融资"}],'
+        '"relationships":[],"warnings":[]}'
+    )
+
+    monkeypatch.setattr("app.main.settings.llm_enabled", True)
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: gateway)
+
+    response = client.post("/extract", json={"text": "天河科技完成A轮融资。"})
+
+    assert response.status_code == 200
+    assert response.json()["entities"][0]["name"] == "天河科技"
+
+
+def test_text2cypher_route_uses_configured_llm_when_enabled(monkeypatch):
+    gateway = FakeGateway('{"cypher":"MATCH (c:Company) RETURN c"}')
+
+    monkeypatch.setattr("app.main.settings.llm_enabled", True)
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: gateway)
+
+    response = client.post("/qa/text2cypher", json={"question": "查询所有公司"})
+
+    assert response.status_code == 200
+    assert response.json()["cypher"] == "MATCH (c:Company) RETURN c LIMIT 50"

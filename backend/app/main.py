@@ -2,8 +2,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.models.api import ExtractRequest, HealthResponse, Text2CypherRequest
-from app.services.extraction_service import extract_mock
+from app.config import settings
+from app.models.api import ExtractRequest, HealthResponse, Text2CypherRequest, Text2CypherSafety
+from app.services.extraction_service import extract_mock, extract_with_deepseek
 from app.services.graph_rag_service import answer_with_graph_context
 from app.services.graph_query_service import company_profile, subgraph
 from app.services.graph_store import graph_store
@@ -12,7 +13,8 @@ from app.services.metrics_service import default_gold_standard_path, evaluate_go
 from app.services.mock_data import sample_graph
 from app.services.scheduler_service import get_job_run, list_job_runs, run_akshare_update_mock
 from app.services.stock_analysis_service import build_stock_analysis
-from app.services.text2cypher_service import answer_text2cypher
+from app.services.llm_service import HttpLLMGateway
+from app.services.text2cypher_service import answer_text2cypher, generate_cypher_with_deepseek
 
 
 app = FastAPI(title="Financial KG API", version="0.1.0")
@@ -50,6 +52,13 @@ def import_dataset(payload: dict | None = None) -> dict:
 
 @app.post("/extract")
 def extract(request: ExtractRequest) -> dict:
+    if settings.llm_enabled:
+        try:
+            return extract_with_deepseek(request.text, HttpLLMGateway())
+        except Exception as exc:
+            fallback = extract_mock(request.text)
+            fallback["warnings"].append(f"llm_fallback: {exc}")
+            return fallback
     return extract_mock(request.text)
 
 
@@ -108,6 +117,14 @@ def extract_company_name_from_question(question: object) -> str:
 @app.post("/qa/text2cypher")
 def text2cypher(request: Text2CypherRequest):
     try:
+        if settings.llm_enabled:
+            cypher, rules = generate_cypher_with_deepseek(request.question, HttpLLMGateway())
+            return {
+                "cypher": cypher,
+                "safety": Text2CypherSafety(passed=True, rules=rules).model_dump(),
+                "table": {"columns": [], "rows": []},
+                "graph": sample_graph().model_dump(),
+            }
         return answer_text2cypher(request.question)
     except ValueError as exc:
         return JSONResponse(

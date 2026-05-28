@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
+from typing import Any
 
+from app.services.llm_service import LLMGateway, LLMTask
 from app.services.graph_store import node_id
 
 
@@ -72,6 +75,83 @@ def extract_financial_text(text: str) -> dict:
         ],
         "warnings": [],
     }
+
+
+def extract_with_deepseek(text: str, gateway: LLMGateway) -> dict:
+    content = gateway.complete(
+        task=LLMTask.EXTRACTION,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "你是金融知识图谱抽取器。请严格输出 json，包含 entities、relationships、warnings。"
+                    "实体类型只允许 Company、Person、Institution、Event、Industry。"
+                    "关系类型优先使用 INVESTED_IN、RECEIVED_FUNDING、HOLDS_SHARES、LEGAL_REP_OF、EXECUTIVE_OF。"
+                ),
+            },
+            {"role": "user", "content": text},
+        ],
+        temperature=0,
+        max_tokens=2048,
+    )
+    raw = json.loads(content)
+    return _normalize_llm_extraction(text, raw)
+
+
+def _normalize_llm_extraction(text: str, raw: dict[str, Any]) -> dict:
+    cleaned_text = re.sub(r"\s+", "", text or "")
+    content_hash = hashlib.sha1(cleaned_text.encode("utf-8")).hexdigest()[:16]
+    temp_by_name: dict[str, str] = {}
+    entities: list[dict[str, Any]] = []
+
+    for index, entity in enumerate(raw.get("entities", []), start=1):
+        name = str(entity.get("name", "")).strip()
+        entity_type = str(entity.get("type", "Company")).strip()
+        if not name:
+            continue
+        temp_id = f"e{index}"
+        temp_by_name[name] = temp_id
+        entities.append(
+            {
+                "temp_id": temp_id,
+                "name": name,
+                "type": entity_type,
+                "resolved_id": node_id(entity_type, name),
+                "resolution_confidence": float(entity.get("resolution_confidence", 0.85)),
+                "evidence": entity.get("evidence", name),
+            }
+        )
+
+    relationships: list[dict[str, Any]] = []
+    for index, relationship in enumerate(raw.get("relationships", []), start=1):
+        confidence = float(relationship.get("confidence", 0.8))
+        relationships.append(
+            {
+                "temp_id": f"r{index}",
+                "head_temp_id": temp_by_name.get(str(relationship.get("head")), ""),
+                "relation": relationship.get("relation", "RELATED_TO"),
+                "tail_temp_id": temp_by_name.get(str(relationship.get("tail")), ""),
+                "attributes": relationship.get("attributes", {}),
+                "evidence": relationship.get("evidence", cleaned_text[:120]),
+                "confidence": confidence,
+                "status": _status_for_confidence(confidence),
+            }
+        )
+
+    return {
+        "document": {"title": None, "content_hash": content_hash},
+        "entities": entities,
+        "relationships": relationships,
+        "warnings": raw.get("warnings", []),
+    }
+
+
+def _status_for_confidence(confidence: float) -> str:
+    if confidence >= 0.8:
+        return "confirmed"
+    if confidence >= 0.5:
+        return "pending_review"
+    return "rejected"
 
 
 def _extract_company_and_round(text: str) -> tuple[str, str]:

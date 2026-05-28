@@ -1,6 +1,8 @@
 import re
+import json
 
 from app.models.api import Text2CypherResponse, Text2CypherSafety
+from app.services.llm_service import LLMGateway, LLMTask
 from app.services.mock_data import sample_graph
 
 
@@ -80,6 +82,27 @@ def answer_text2cypher(question: str) -> Text2CypherResponse:
         table={"columns": ["company", "relation", "target"], "rows": [["示例科技", "RECEIVED_FUNDING", "B轮融资事件"]]},
         graph=sample_graph(),
     )
+
+
+def generate_cypher_with_deepseek(question: str, gateway: LLMGateway) -> tuple[str, list[str]]:
+    content = gateway.complete(
+        task=LLMTask.TEXT2CYPHER,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "你是 Neo4j Cypher 生成器。请输出 json，格式为 {\"cypher\": \"...\"}。"
+                    "只能生成只读 MATCH/OPTIONAL MATCH 查询，不允许 CREATE、MERGE、SET、DELETE、CALL、LOAD CSV。"
+                    "最大路径深度为 3，查询必须可追加或包含 LIMIT。"
+                ),
+            },
+            {"role": "user", "content": question},
+        ],
+        temperature=0,
+        max_tokens=1024,
+    )
+    payload = json.loads(content)
+    return sanitize_readonly_cypher(str(payload.get("cypher", "")))
 
 
 def _strip_comments(cypher: str) -> str:

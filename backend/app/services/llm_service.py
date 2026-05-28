@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+import httpx
+
 from app.config import settings
 
 
@@ -66,3 +68,51 @@ def build_chat_payload(
     if profile.thinking:
         payload["thinking"] = {"type": "enabled"}
     return payload
+
+
+class LLMGateway:
+    def complete(
+        self,
+        *,
+        task: LLMTask,
+        messages: list[dict[str, str]],
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+    ) -> str:
+        raise NotImplementedError
+
+
+class HttpLLMGateway(LLMGateway):
+    def complete(
+        self,
+        *,
+        task: LLMTask,
+        messages: list[dict[str, str]],
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+    ) -> str:
+        if not settings.llm_enabled:
+            raise RuntimeError("LLM is disabled. Set LLM_ENABLED=true to call external providers.")
+        if not settings.openai_api_key:
+            raise RuntimeError("OPENAI_API_KEY is required when LLM_ENABLED=true.")
+
+        profile = select_model_profile(task)
+        payload = build_chat_payload(profile, messages, temperature=temperature, max_tokens=max_tokens)
+        endpoint = f"{_base_url(profile.provider).rstrip('/')}/chat/completions"
+        response = httpx.post(
+            endpoint,
+            headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+            json=payload,
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data["choices"][0]["message"]["content"]
+
+
+def _base_url(provider: str) -> str:
+    if settings.openai_base_url:
+        return settings.openai_base_url
+    if provider == "grok":
+        return "https://api.x.ai/v1"
+    return "https://api.deepseek.com"
