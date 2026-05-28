@@ -265,13 +265,29 @@ def import_graph(payload: dict) -> dict:
 
 
 @app.get("/graph/company/{name}")
-def get_company_profile(name: str, depth: int = 2, include_pending: bool = False) -> dict:
+def get_company_profile(name: str, depth: int = Query(2, ge=1, le=3), include_pending: bool = False) -> dict:
     payload = company_profile(name, depth=depth)
     graph = payload.get("graph") or {}
     nodes = graph.get("nodes") or []
     edges = graph.get("edges") or []
     payload["found"] = bool(nodes or edges)
     return payload
+
+
+@app.get("/graph/companies")
+def search_companies(
+    q: str = Query("", description="模糊搜索关键字，留空返回前 N 条"),
+    limit: int = Query(20, ge=1, le=100),
+) -> dict:
+    matches = graph_store.search_companies(q, limit=limit)
+    return {
+        "query": q,
+        "total": len(matches),
+        "companies": [
+            {"id": node.id, "name": node.label, "industry": node.properties.get("industry", "未知")}
+            for node in matches
+        ],
+    }
 
 
 @app.get("/graph/subgraph")
@@ -444,7 +460,26 @@ def extract_company_name_from_question(question: object) -> str:
             if candidate:
                 return candidate
 
+    try:
+        candidates = graph_store.search_companies(normalized_question, limit=1)
+    except Exception:
+        candidates = []
+    if candidates:
+        return candidates[0].label
+
+    for company in _iter_company_labels():
+        if company and company in normalized_question:
+            return company
+
     return "该企业"
+
+
+def _iter_company_labels():
+    try:
+        all_graph = graph_store.all_graph()
+    except Exception:
+        return []
+    return [node.label for node in all_graph.nodes if node.type == "Company" and node.label]
 
 
 @app.post("/qa/text2cypher")
@@ -587,9 +622,10 @@ def get_market_kline(
     start_date: str | None = None,
     end_date: str | None = None,
     adjust: Literal["qfq", "hfq", ""] = "qfq",
+    company_name: str | None = Query(None, description="可选公司名，用于从图谱拼接事件标注"),
 ) -> dict:
     try:
-        return build_kline_response(
+        payload = build_kline_response(
             stock_code=stock_code,
             market=market,
             period=period,
@@ -607,6 +643,37 @@ def get_market_kline(
             status_code=503,
             detail={"error": "market_data_error", "message": str(exc)},
         ) from exc
+
+    target_name = (company_name or payload.get("company_name") or "").strip()
+    if target_name and target_name != stock_code:
+        payload["events"] = _kline_events_for_company(target_name)
+    return payload
+
+
+def _kline_events_for_company(company_name: str) -> list[dict]:
+    try:
+        events = graph_store.events_for_company(company_name, limit=30)
+    except Exception:
+        return []
+    annotations: list[dict] = []
+    for event in events:
+        props = event.properties or {}
+        date = props.get("date") or ""
+        if not date:
+            continue
+        annotations.append(
+            {
+                "date": date,
+                "label": event.label,
+                "event_type": props.get("event_type", "funding"),
+                "round": props.get("round", ""),
+                "amount": props.get("amount", ""),
+                "description": props.get("description", ""),
+                "source": props.get("source", ""),
+            }
+        )
+    annotations.sort(key=lambda item: item["date"])
+    return annotations
 
 
 def _sse_stream(token_stream: Iterable[str], metadata: dict) -> StreamingResponse:

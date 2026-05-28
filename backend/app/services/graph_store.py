@@ -172,12 +172,21 @@ class InMemoryGraphStore:
 
             max_depth = max(1, min(max_depth, 4))
             queue: list[tuple[str, list[str], list[str]]] = [(source.id, [source.id], [])]
-            visited_depth: dict[str, int] = {source.id: 0}
+            results: list[dict[str, Any]] = []
+            shortest_length: int | None = None
 
             while queue:
                 current_id, node_path, edge_path = queue.pop(0)
-                if current_id == target.id:
-                    return [self._path_payload(node_path, edge_path)]
+                if current_id == target.id and edge_path:
+                    if shortest_length is None:
+                        shortest_length = len(edge_path)
+                    if len(edge_path) <= shortest_length:
+                        results.append(self._path_payload(node_path, edge_path))
+                    if len(results) >= 10:
+                        break
+                    continue
+                if shortest_length is not None and len(edge_path) >= shortest_length:
+                    continue
                 if len(edge_path) >= max_depth:
                     continue
 
@@ -189,27 +198,81 @@ class InMemoryGraphStore:
                         neighbor = edge.source
                     if neighbor is None or neighbor in node_path:
                         continue
-                    next_depth = len(edge_path) + 1
-                    if visited_depth.get(neighbor, max_depth + 1) <= next_depth:
-                        continue
-                    visited_depth[neighbor] = next_depth
                     queue.append((neighbor, [*node_path, neighbor], [*edge_path, edge.id]))
 
-            return []
+            return results
 
     def _find_company(self, name: str) -> GraphNode | None:
         normalized = name.strip().lower()
+        if not normalized:
+            return None
         for node in self._nodes.values():
             if node.type == "Company" and node.label.strip().lower() == normalized:
+                return node
+        for node in self._nodes.values():
+            if node.type == "Company" and normalized in node.label.strip().lower():
                 return node
         return None
 
     def _find_node_by_label(self, label: str) -> GraphNode | None:
         normalized = label.strip().lower()
+        if not normalized:
+            return None
         for node in self._nodes.values():
             if node.label.strip().lower() == normalized:
                 return node
+        for node in self._nodes.values():
+            if normalized in node.label.strip().lower():
+                return node
         return None
+
+    def search_companies(self, query: str, limit: int = 20) -> list[GraphNode]:
+        with self._lock:
+            normalized = query.strip().lower()
+            companies = [node for node in self._nodes.values() if node.type == "Company"]
+            if not normalized:
+                return companies[:limit]
+
+            exact: list[GraphNode] = []
+            prefix: list[GraphNode] = []
+            contains: list[GraphNode] = []
+            for node in companies:
+                label = node.label.strip().lower()
+                if not label:
+                    continue
+                if label == normalized:
+                    exact.append(node)
+                elif label.startswith(normalized):
+                    prefix.append(node)
+                elif normalized in label:
+                    contains.append(node)
+            return (exact + prefix + contains)[:limit]
+
+    def events_for_company(self, name: str, limit: int = 20) -> list[GraphNode]:
+        with self._lock:
+            company = self._find_company(name)
+            if company is None:
+                return []
+            event_ids: list[str] = []
+            for edge in self._edges.values():
+                if edge.source == company.id and edge.target in self._nodes:
+                    candidate = self._nodes[edge.target]
+                    if candidate.type == "Event":
+                        event_ids.append(candidate.id)
+                elif edge.target == company.id and edge.source in self._nodes:
+                    candidate = self._nodes[edge.source]
+                    if candidate.type == "Event":
+                        event_ids.append(candidate.id)
+            seen: set[str] = set()
+            events: list[GraphNode] = []
+            for eid in event_ids:
+                if eid in seen:
+                    continue
+                seen.add(eid)
+                events.append(self._nodes[eid])
+                if len(events) >= limit:
+                    break
+            return events
 
     def _subgraph_for_node(self, node_id: str, max_depth: int) -> GraphPayload:
         visited = {node_id}

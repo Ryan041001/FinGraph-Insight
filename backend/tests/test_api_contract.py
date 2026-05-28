@@ -675,6 +675,187 @@ def test_financial_dataset_import_uses_project_root_data_path(monkeypatch):
     assert profile_response.json()["company"]["name"] == "根目录数据企业"
 
 
+def test_graph_companies_search_returns_fuzzy_matches(monkeypatch):
+    from app.services.graph_store import graph_store
+    from app.models.api import GraphNode, GraphPayload
+
+    graph_store.clear()
+    graph_store.import_graph(
+        GraphPayload(
+            nodes=[
+                GraphNode(id="company_search_1", label="蓝海智能科技", type="Company", properties={"name": "蓝海智能科技", "industry": "AI"}),
+                GraphNode(id="company_search_2", label="蓝海资本", type="Company", properties={"name": "蓝海资本"}),
+                GraphNode(id="company_search_3", label="高榕资本", type="Company", properties={"name": "高榕资本"}),
+            ],
+            edges=[],
+        )
+    )
+
+    response = client.get("/graph/companies", params={"q": "蓝海", "limit": 10})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 2
+    labels = [item["name"] for item in payload["companies"]]
+    assert "蓝海智能科技" in labels
+    assert "蓝海资本" in labels
+
+
+def test_graph_companies_search_empty_query_returns_top_n():
+    from app.services.graph_store import graph_store
+    from app.models.api import GraphNode, GraphPayload
+
+    graph_store.clear()
+    graph_store.import_graph(
+        GraphPayload(
+            nodes=[
+                GraphNode(id=f"company_empty_{i}", label=f"批量公司{i}", type="Company", properties={"name": f"批量公司{i}"})
+                for i in range(5)
+            ],
+            edges=[],
+        )
+    )
+
+    response = client.get("/graph/companies", params={"limit": 3})
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 3
+
+
+def test_company_profile_finds_partial_match():
+    from app.services.graph_store import graph_store
+    from app.models.api import GraphNode, GraphPayload
+
+    graph_store.clear()
+    graph_store.import_graph(
+        GraphPayload(
+            nodes=[GraphNode(id="company_full_1", label="邦盛科技股份有限公司", type="Company", properties={"name": "邦盛科技股份有限公司"})],
+            edges=[],
+        )
+    )
+
+    response = client.get("/graph/company/邦盛")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["found"] is True
+    assert "邦盛" in payload["company"]["name"]
+
+
+def test_graph_path_returns_multiple_paths_when_available():
+    from app.services.graph_store import graph_store
+    from app.models.api import GraphEdge, GraphNode, GraphPayload
+
+    graph_store.clear()
+    graph_store.import_graph(
+        GraphPayload(
+            nodes=[
+                GraphNode(id="company_a", label="公司A", type="Company"),
+                GraphNode(id="company_b", label="公司B", type="Company"),
+                GraphNode(id="event_x", label="事件X", type="Event"),
+                GraphNode(id="event_y", label="事件Y", type="Event"),
+            ],
+            edges=[
+                GraphEdge(id="rel_ax", source="company_a", target="event_x", type="RECEIVED_FUNDING", label="获得融资"),
+                GraphEdge(id="rel_bx", source="company_b", target="event_x", type="INVESTED_IN", label="投资"),
+                GraphEdge(id="rel_ay", source="company_a", target="event_y", type="RECEIVED_FUNDING", label="获得融资"),
+                GraphEdge(id="rel_by", source="company_b", target="event_y", type="INVESTED_IN", label="投资"),
+            ],
+        )
+    )
+
+    response = client.get("/graph/path", params={"source": "公司A", "target": "公司B", "max_depth": 3})
+
+    assert response.status_code == 200
+    paths = response.json()["paths"]
+    assert len(paths) >= 2
+
+
+def test_kline_response_attaches_company_events(monkeypatch):
+    from app.services.graph_store import graph_store
+    from app.models.api import GraphNode, GraphPayload
+
+    graph_store.clear()
+    graph_store.import_graph(
+        GraphPayload(
+            nodes=[
+                GraphNode(id="company_kline_test", label="测试上市公司", type="Company", properties={"name": "测试上市公司"}),
+                GraphNode(
+                    id="event_kline_funding",
+                    label="测试上市公司A轮融资",
+                    type="Event",
+                    properties={"name": "测试上市公司A轮融资", "date": "2024-03-15", "round": "A轮", "amount": "1亿元"},
+                ),
+            ],
+            edges=[
+                {"id": "rel_kline_evt", "source": "company_kline_test", "target": "event_kline_funding",
+                 "type": "RECEIVED_FUNDING", "label": "获得融资", "properties": {}, "provenance": {}}
+            ],
+        )
+    )
+
+    def fake_kline(**kwargs):
+        return {
+            "stock_code": "999001",
+            "market": "A",
+            "display_code": "999001",
+            "company_name": "999001",
+            "period": "daily",
+            "adjust": "qfq",
+            "cached": False,
+            "data_source": "test",
+            "start_date": None,
+            "end_date": None,
+            "kline_data": [{"date": "2024-03-15", "open": 1, "close": 2, "high": 3, "low": 0.5, "volume": 100, "amount": 0}],
+            "events": [],
+        }
+
+    monkeypatch.setattr("app.main.build_kline_response", fake_kline)
+
+    response = client.get("/market/kline/999001", params={"company_name": "测试上市公司"})
+
+    assert response.status_code == 200
+    events = response.json()["events"]
+    assert len(events) == 1
+    assert events[0]["date"] == "2024-03-15"
+    assert events[0]["round"] == "A轮"
+
+
+def test_question_entity_extraction_falls_back_to_graph_match(monkeypatch):
+    from app.services.graph_store import graph_store
+    from app.models.api import GraphEdge, GraphNode, GraphPayload
+
+    graph_store.clear()
+    graph_store.import_graph(
+        GraphPayload(
+            nodes=[
+                GraphNode(id="company_fuzzy_q", label="量子云链科技", type="Company", properties={"name": "量子云链科技"}),
+            ],
+            edges=[],
+        )
+    )
+    captured = {}
+
+    def capture_gateway():
+        class StreamingFake:
+            def complete(self, **kwargs):
+                return '{"answer":"ok"}'
+
+            def stream_complete(self, **kwargs):
+                captured["question"] = kwargs.get("messages", [{}, {}])[1].get("content", "")
+                yield "ok"
+
+        return StreamingFake()
+
+    monkeypatch.setattr("app.main.HttpLLMGateway", capture_gateway)
+
+    response = client.post("/qa/graph-rag/stream", json={"question": "量子云链科技最近有哪些融资？"})
+
+    assert response.status_code == 200
+    # 验证 SSE 已经使用了图谱里识别到的公司名
+    assert "量子云链科技" in response.text
+
+
 def test_akshare_run_returns_running_immediately_with_background_thread(monkeypatch):
     completed_event = {"value": False}
 
