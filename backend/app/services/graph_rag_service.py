@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from app.models.api import GraphPayload
+from app.services.llm_service import LLMGateway, LLMTask
+import json
 
 
 def answer_with_graph_context(question: str, graph: GraphPayload) -> dict:
@@ -27,6 +29,34 @@ def answer_with_graph_context(question: str, graph: GraphPayload) -> dict:
         "citations": citations,
         "question": question,
     }
+
+
+def answer_with_deepseek_graph_context(question: str, graph: GraphPayload, gateway: LLMGateway) -> dict:
+    content = gateway.complete(
+        task=LLMTask.GRAPH_RAG,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "你是金融知识图谱问答助手。只能基于用户提供的 supporting_graph 回答。"
+                    "请输出 json：{\"answer\":\"...\"}。不得编造图谱外事实。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {"question": question, "supporting_graph": graph.model_dump()},
+                    ensure_ascii=False,
+                ),
+            },
+        ],
+        temperature=0,
+        max_tokens=1024,
+    )
+    payload = json.loads(content)
+    base = answer_with_graph_context(question, graph)
+    base["answer"] = str(payload.get("answer", base["answer"]))
+    return base
 
 
 def _node_label(graph: GraphPayload, node_id: str) -> str:

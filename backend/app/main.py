@@ -8,7 +8,7 @@ from app.config import settings
 from app.data.financial_dataset_loader import load_financial_dataset_directory
 from app.models.api import ExtractRequest, HealthResponse, Text2CypherRequest, Text2CypherSafety
 from app.services.extraction_service import extract_mock, extract_with_deepseek, judge_extraction_with_deepseek
-from app.services.graph_rag_service import answer_with_graph_context
+from app.services.graph_rag_service import answer_with_deepseek_graph_context, answer_with_graph_context
 from app.services.graph_query_service import company_profile, paths, subgraph
 from app.services.graph_runtime import import_graph_runtime
 from app.services.graph_store import graph_store
@@ -113,6 +113,11 @@ def get_path(source: str, target: str, max_depth: int = 4) -> dict:
 def graph_rag(payload: dict) -> dict:
     company_name = extract_company_name_from_question(payload.get("question"))
     graph = graph_store.subgraph(company_name)
+    if settings.llm_enabled:
+        try:
+            return answer_with_deepseek_graph_context(str(payload.get("question", "")), graph, HttpLLMGateway())
+        except Exception:
+            pass
     return answer_with_graph_context(str(payload.get("question", "")), graph)
 
 

@@ -1,4 +1,6 @@
 from app.services.extraction_service import judge_extraction_with_deepseek, extract_with_deepseek
+from app.services.graph_rag_service import answer_with_deepseek_graph_context
+from app.services.mock_data import sample_graph
 from app.services.text2cypher_service import generate_cypher_with_deepseek
 from tests.test_api_contract import client
 
@@ -112,3 +114,15 @@ def test_text2cypher_route_uses_configured_llm_when_enabled(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["cypher"] == "MATCH (c:Company) RETURN c LIMIT 50"
+
+
+def test_answer_with_deepseek_graph_context_preserves_graph_and_citations():
+    gateway = FakeGateway('{"answer":"根据图谱，星河数据获得B轮融资。"}')
+    graph = sample_graph("星河数据")
+
+    response = answer_with_deepseek_graph_context("星河数据融资情况？", graph, gateway)
+
+    assert response["answer"] == "根据图谱，星河数据获得B轮融资。"
+    assert response["supporting_graph"]["nodes"]
+    assert response["citations"]
+    assert gateway.calls[0]["task"] == "graph_rag"
