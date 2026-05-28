@@ -675,6 +675,34 @@ def test_financial_dataset_import_uses_project_root_data_path(monkeypatch):
     assert profile_response.json()["company"]["name"] == "根目录数据企业"
 
 
+def test_text2cypher_memory_mode_returns_note_instead_of_full_graph(monkeypatch):
+    from app.services.graph_store import graph_store
+    from app.models.api import GraphNode, GraphPayload
+
+    graph_store.clear()
+    bulk_nodes = [
+        GraphNode(id=f"company_bulk_{i}", label=f"批量公司{i}", type="Company", properties={"name": f"批量公司{i}"})
+        for i in range(50)
+    ]
+    graph_store.import_graph(GraphPayload(nodes=bulk_nodes, edges=[]))
+
+    monkeypatch.setattr("app.main.settings.graph_backend", "memory")
+    monkeypatch.setattr(
+        "app.main.generate_cypher_with_llm",
+        lambda question, gateway: ("MATCH (c:Company) RETURN c LIMIT 5", ["read_only", "limit_added"]),
+    )
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: FakeGateway('{"cypher":"MATCH (c:Company) RETURN c"}'))
+
+    response = client.post("/qa/text2cypher", json={"question": "查询所有公司"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["graph"]["nodes"] == []
+    assert payload["graph"]["edges"] == []
+    assert payload["cypher"].startswith("MATCH")
+    assert "neo4j" in payload["note"].lower() or "Neo4j" in payload["note"]
+
+
 def test_text2cypher_returns_json_response_on_validation_failure(monkeypatch):
     def reject(question, gateway):
         raise ValueError("生成的 Cypher 包含未知图谱标签 Foo，已拒绝执行。")

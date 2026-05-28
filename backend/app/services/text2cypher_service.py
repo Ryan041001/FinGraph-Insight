@@ -107,6 +107,14 @@ def answer_text2cypher(question: str) -> Text2CypherResponse:
 
 
 def generate_cypher_with_llm(question: str, gateway: LLMGateway) -> tuple[str, list[str]]:
+    runtime_labels, runtime_relationships = _runtime_schema_tokens()
+    allowed_labels = sorted(ALLOWED_LABELS | runtime_labels)
+    allowed_relationships = sorted(ALLOWED_RELATIONSHIPS | runtime_relationships)
+    schema_hint = (
+        f"图谱节点标签只能使用：{', '.join(allowed_labels)}。"
+        f"关系类型只能使用：{', '.join(allowed_relationships)}。"
+        f"若问题需要的关系不在列表中，请用最接近的合法关系并保持方向正确（投资方→事件用 INVESTED_IN，公司→事件用 RECEIVED_FUNDING）。"
+    )
     content = gateway.complete(
         task=LLMTask.TEXT2CYPHER,
         messages=[
@@ -115,7 +123,8 @@ def generate_cypher_with_llm(question: str, gateway: LLMGateway) -> tuple[str, l
                 "content": (
                     "你是 Neo4j Cypher 生成器。请输出 json，格式为 {\"cypher\": \"...\"}。"
                     "只能生成只读 MATCH/OPTIONAL MATCH 查询，不允许 CREATE、MERGE、SET、DELETE、CALL、LOAD CSV。"
-                    "最大路径深度为 3，查询必须可追加或包含 LIMIT。"
+                    f"最大路径深度为 {MAX_PATH_DEPTH}，查询必须可追加或包含 LIMIT {DEFAULT_LIMIT}。"
+                    f"\n{schema_hint}"
                 ),
             },
             {"role": "user", "content": question},
@@ -124,11 +133,10 @@ def generate_cypher_with_llm(question: str, gateway: LLMGateway) -> tuple[str, l
         max_tokens=1024,
     )
     payload = parse_llm_json_object(content)
-    labels, relationships = _runtime_schema_tokens()
     return sanitize_readonly_cypher(
         require_llm_json_string(payload, "cypher"),
-        extra_labels=labels,
-        extra_relationships=relationships,
+        extra_labels=runtime_labels,
+        extra_relationships=runtime_relationships,
     )
 
 

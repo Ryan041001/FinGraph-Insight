@@ -452,7 +452,8 @@ def text2cypher(request: Text2CypherRequest):
             "cypher": cypher,
             "safety": safety,
             "table": {"columns": [], "rows": []},
-            "graph": graph_store.all_graph().model_dump(),
+            "graph": {"nodes": [], "edges": []},
+            "note": "当前未启用 Neo4j 后端，仅返回生成的 Cypher 文本未执行；请将 GRAPH_BACKEND 切换到 neo4j 后查询。",
         }
     except ValueError as exc:
         return JSONResponse(
