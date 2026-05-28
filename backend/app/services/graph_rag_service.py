@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.models.api import GraphPayload
 from app.services.llm_service import LLMGateway, LLMTask
+from app.services.vector_store import InMemoryVectorStore, vector_store as default_vector_store
 import json
 
 
@@ -29,6 +30,41 @@ def answer_with_graph_context(question: str, graph: GraphPayload) -> dict:
         "citations": citations,
         "question": question,
     }
+
+
+def answer_with_hybrid_context(
+    question: str,
+    graph: GraphPayload,
+    *,
+    vector_store: InMemoryVectorStore = default_vector_store,
+    top_k: int = 5,
+) -> dict:
+    base = answer_with_graph_context(question, graph)
+    document_context = vector_store.search(question, top_k=top_k)
+    document_citations = [
+        {
+            "chunk_id": chunk["chunk_id"],
+            "doc_id": chunk["doc_id"],
+            "source": chunk["metadata"].get("source", chunk.get("title") or "document"),
+            "source_text": chunk["text"],
+            "score": chunk["score"],
+        }
+        for chunk in document_context
+    ]
+
+    if document_context:
+        document_summary = "；".join(chunk["text"] for chunk in document_context[:2])
+        base["answer"] = f"{base['answer']} 文档补充：{document_summary}"
+
+    base["document_context"] = document_context
+    base["citations"] = [*base["citations"], *document_citations]
+    base["retrieval"] = {
+        "mode": "hybrid",
+        "graph_nodes": len(graph.nodes),
+        "graph_edges": len(graph.edges),
+        "document_chunks": len(document_context),
+    }
+    return base
 
 
 def answer_with_deepseek_graph_context(question: str, graph: GraphPayload, gateway: LLMGateway) -> dict:

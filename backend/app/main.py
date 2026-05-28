@@ -1,4 +1,5 @@
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,22 +7,39 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.data.financial_dataset_loader import load_financial_dataset_directory
-from app.models.api import ExtractRequest, HealthResponse, Text2CypherRequest, Text2CypherSafety
+from app.models.api import DocumentIndexRequest, ExtractRequest, HealthResponse, Text2CypherRequest, Text2CypherSafety
 from app.services.extraction_service import extract_mock, extract_with_deepseek, judge_extraction_with_deepseek
-from app.services.graph_rag_service import answer_with_deepseek_graph_context, answer_with_graph_context
+from app.services.graph_rag_service import answer_with_deepseek_graph_context, answer_with_hybrid_context
 from app.services.graph_query_service import company_profile, paths, subgraph
-from app.services.graph_runtime import import_graph_runtime
+from app.services.graph_runtime import import_extraction_payload_runtime, import_graph_runtime
 from app.services.graph_store import graph_store
 from app.services.market_service import build_kline_response, get_kline_mock
 from app.services.metrics_service import default_gold_standard_path, evaluate_gold_standard
 from app.services.mock_data import sample_graph
-from app.services.scheduler_service import get_job_run, list_job_runs, run_akshare_update_mock
+from app.services.scheduler_service import (
+    get_job_run,
+    list_job_runs,
+    run_akshare_update_mock,
+    scheduler_status,
+    shutdown_scheduler,
+    start_scheduler,
+)
 from app.services.stock_analysis_service import build_stock_analysis, build_stock_analysis_with_deepseek
 from app.services.llm_service import HttpLLMGateway
 from app.services.text2cypher_service import answer_text2cypher, generate_cypher_with_deepseek
+from app.services.vector_store import vector_store
 
 
-app = FastAPI(title="Financial KG API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    start_scheduler()
+    try:
+        yield
+    finally:
+        shutdown_scheduler()
+
+
+app = FastAPI(title="Financial KG API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,7 +52,7 @@ app.add_middleware(
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    return HealthResponse(status="ok", neo4j=graph_store.health_status(), scheduler="running")
+    return HealthResponse(status="ok", neo4j=graph_store.health_status(), scheduler=scheduler_status())
 
 
 @app.post("/datasets/import")
@@ -84,7 +102,7 @@ def extract(request: ExtractRequest) -> dict:
 
 @app.post("/graph/import")
 def import_graph(payload: dict) -> dict:
-    stats = graph_store.import_extraction_payload(payload)
+    stats = import_extraction_payload_runtime(payload)
     return {
         "nodes_created": stats.nodes_created,
         "nodes_matched": stats.nodes_matched,
@@ -115,10 +133,26 @@ def graph_rag(payload: dict) -> dict:
     graph = graph_store.subgraph(company_name)
     if settings.llm_enabled:
         try:
-            return answer_with_deepseek_graph_context(str(payload.get("question", "")), graph, HttpLLMGateway())
+            response = answer_with_deepseek_graph_context(str(payload.get("question", "")), graph, HttpLLMGateway())
+            hybrid = answer_with_hybrid_context(str(payload.get("question", "")), graph)
+            response["document_context"] = hybrid["document_context"]
+            response["retrieval"] = hybrid["retrieval"]
+            response["citations"] = [*response["citations"], *hybrid["citations"][len(response["citations"]) :]]
+            return response
         except Exception:
             pass
-    return answer_with_graph_context(str(payload.get("question", "")), graph)
+    return answer_with_hybrid_context(str(payload.get("question", "")), graph)
+
+
+@app.post("/rag/documents")
+def index_rag_document(request: DocumentIndexRequest) -> dict:
+    chunks_indexed = vector_store.add_document(
+        doc_id=request.doc_id,
+        title=request.title,
+        text=request.text,
+        metadata=request.metadata,
+    )
+    return {"doc_id": request.doc_id, "chunks_indexed": chunks_indexed, "status": "success"}
 
 
 def extract_company_name_from_question(question: object) -> str:

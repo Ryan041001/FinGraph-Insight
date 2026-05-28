@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     graph_backend: str = Field(default="memory", alias="GRAPH_BACKEND")
     market_live_enabled: bool = Field(default=False, alias="MARKET_LIVE_ENABLED")
     scheduler_enabled: bool = Field(default=True, alias="SCHEDULER_ENABLED")
+    akshare_update_cron: str = Field(default="0 */6 * * *", alias="AKSHARE_UPDATE_CRON")
     text2cypher_max_limit: int = Field(default=100, alias="TEXT2CYPHER_MAX_LIMIT")
     text2cypher_timeout_seconds: int = Field(default=5, alias="TEXT2CYPHER_TIMEOUT_SECONDS")
 

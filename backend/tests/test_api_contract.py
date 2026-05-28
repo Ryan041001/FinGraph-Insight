@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.graph_store import ImportStats
 from app.services.mock_data import sample_graph
 
 
@@ -13,7 +14,7 @@ def test_health_reports_scheduler_and_graph_status():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["neo4j"] in {"memory", "ok", "unavailable"}
-    assert response.json()["scheduler"] in {"running", "disabled"}
+    assert response.json()["scheduler"] in {"running", "configured", "disabled"}
 
 
 def test_company_profile_returns_graph_contract():
@@ -140,6 +141,30 @@ def test_graph_import_persists_confirmed_extraction_for_company_profile():
         edge["type"] in {"INVESTED_IN", "RECEIVED_FUNDING"}
         for edge in profile["graph"]["edges"]
     )
+
+
+def test_graph_import_route_uses_graph_runtime(monkeypatch):
+    captured = {}
+
+    def fake_runtime(payload):
+        captured["payload"] = payload
+        return ImportStats(
+            nodes_created=1,
+            nodes_matched=2,
+            relationships_created=3,
+            relationships_skipped=4,
+        )
+
+    monkeypatch.setattr("app.main.import_extraction_payload_runtime", fake_runtime)
+
+    response = client.post("/graph/import", json={"entities": [], "relationships": []})
+
+    assert response.status_code == 200
+    assert captured["payload"] == {"entities": [], "relationships": []}
+    assert response.json()["nodes_created"] == 1
+    assert response.json()["nodes_matched"] == 2
+    assert response.json()["relationships_created"] == 3
+    assert response.json()["relationships_skipped"] == 4
 
 
 def test_dataset_import_is_idempotent_and_populates_queryable_graph():

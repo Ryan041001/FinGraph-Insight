@@ -7,6 +7,10 @@ from typing import Any
 
 from app.services.llm_service import LLMGateway, LLMTask
 from app.services.graph_store import node_id
+from app.services.entity_resolution_service import EntityResolver
+
+
+entity_resolver = EntityResolver()
 
 
 def extract_mock(text: str) -> dict:
@@ -148,6 +152,7 @@ def _normalize_llm_extraction(text: str, raw: dict[str, Any]) -> dict:
         entity_type = str(entity.get("type", "Company")).strip()
         if not name:
             continue
+        resolution = entity_resolver.resolve(name, entity_type)
         temp_id = f"e{index}"
         temp_by_name[name] = temp_id
         entities.append(
@@ -155,8 +160,14 @@ def _normalize_llm_extraction(text: str, raw: dict[str, Any]) -> dict:
                 "temp_id": temp_id,
                 "name": name,
                 "type": entity_type,
-                "resolved_id": node_id(entity_type, name),
-                "resolution_confidence": float(entity.get("resolution_confidence", 0.85)),
+                "resolved_id": resolution["resolved_id"],
+                "resolved_name": resolution["resolved_name"],
+                "normalized_name": resolution["normalized_name"],
+                "resolution_match_type": resolution["match_type"],
+                "resolution_candidates": resolution.get("candidates", []),
+                "resolution_confidence": float(
+                    entity.get("resolution_confidence", resolution["confidence"])
+                ),
                 "evidence": entity.get("evidence", name),
             }
         )

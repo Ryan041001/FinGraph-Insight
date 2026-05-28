@@ -48,6 +48,13 @@ class Text2CypherRequest(BaseModel):
     question: str
 
 
+class DocumentIndexRequest(BaseModel):
+    doc_id: str
+    text: str
+    title: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class Text2CypherSafety(BaseModel):
     passed: bool
     rules: list[str] = Field(default_factory=list)
