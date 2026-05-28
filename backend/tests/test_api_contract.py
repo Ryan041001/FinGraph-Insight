@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.models.api import GraphPayload
 from app.services.graph_store import ImportStats
 from app.services.mock_data import sample_graph
 
@@ -196,6 +197,26 @@ def test_financial_dataset_import_uses_dataset_loader(monkeypatch):
     profile_response = client.get("/graph/company/导入企业")
     assert profile_response.status_code == 200
     assert profile_response.json()["company"]["name"] == "导入企业"
+
+
+def test_financial_dataset_import_uses_project_root_data_path(monkeypatch):
+    seen_paths = []
+
+    def fake_loader(path):
+        seen_paths.append(path)
+        return sample_graph("根目录数据企业")
+
+    monkeypatch.setattr("app.main.load_financial_dataset_directory", fake_loader)
+
+    response = client.post("/datasets/import", json={"dataset": "financial_datasets"})
+
+    assert response.status_code == 200
+    assert seen_paths
+    assert "data" in str(seen_paths[0])
+    assert "backend" not in str(seen_paths[0])
+    profile_response = client.get("/graph/company/根目录数据企业")
+    assert profile_response.status_code == 200
+    assert profile_response.json()["company"]["name"] == "根目录数据企业"
 
 
 def test_graph_path_returns_persisted_path_between_entities():

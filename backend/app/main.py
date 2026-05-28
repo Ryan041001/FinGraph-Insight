@@ -82,11 +82,16 @@ def import_dataset(payload: dict | None = None) -> dict:
 def _load_dataset_graph(dataset: str):
     if dataset == "financial_datasets":
         project_root = Path(__file__).resolve().parents[2]
-        raw_dataset_path = project_root / "data" / "raw" / "FinancialDatasets"
-        fallback_path = project_root / "data" / "processed"
-        graph = load_financial_dataset_directory(raw_dataset_path if raw_dataset_path.exists() else fallback_path)
-        if graph.nodes:
-            return graph
+        candidate_paths = [
+            project_root / "data" / "raw" / "FinancialDatasets",
+            project_root / "data" / "processed",
+        ]
+        for dataset_path in candidate_paths:
+            if not dataset_path.exists():
+                continue
+            graph = load_financial_dataset_directory(dataset_path)
+            if graph.nodes:
+                return graph
     return sample_graph("示例科技")
 
 

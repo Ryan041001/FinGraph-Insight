@@ -5,6 +5,23 @@ from app.services.vector_store import InMemoryVectorStore, vector_store
 from tests.test_api_contract import client
 
 
+class FakeGateway:
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.calls = []
+
+    def complete(self, *, task, messages, temperature=0.2, max_tokens=None):
+        self.calls.append(
+            {
+                "task": task,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+        )
+        return self.content
+
+
 def test_vector_store_indexes_chunks_and_ranks_relevant_documents():
     store = InMemoryVectorStore()
 
@@ -77,6 +94,28 @@ def test_hybrid_rag_service_returns_graph_document_and_retrieval_contract():
     assert "数据治理订阅服务" in response["answer"]
 
 
+def test_hybrid_rag_service_marks_successful_llm_answer_source():
+    store = InMemoryVectorStore()
+    store.add_document(
+        doc_id="doc_hybrid_llm_001",
+        title="星河数据说明",
+        text="星河数据通过数据治理订阅服务获得收入。",
+        metadata={"source": "hybrid_llm_test"},
+    )
+    gateway = FakeGateway('{"answer":"LLM基于图谱和文档回答。"}')
+
+    response = answer_with_hybrid_rag(
+        "星河数据的收入模式是什么？",
+        vector_store=store,
+        gateway=gateway,
+    )
+
+    assert response["answer"] == "LLM基于图谱和文档回答。"
+    assert response["retrieval"]["llm_used"] is True
+    assert response["retrieval"]["answer_source"] == "llm"
+    assert len(gateway.calls) == 1
+
+
 def test_graph_rag_route_uses_indexed_document_context():
     vector_store.clear()
 
@@ -126,3 +165,21 @@ def test_hybrid_rag_route_returns_indexed_document_context():
     assert payload["retrieval"]["mode"] == "hybrid"
     assert payload["document_context"]
     assert "年度订阅服务" in payload["answer"]
+
+
+def test_hybrid_rag_route_calls_llm_when_enabled(monkeypatch):
+    vector_store.clear()
+    gateway = FakeGateway('{"answer":"路由已调用LLM。"}')
+
+    monkeypatch.setattr("app.main.settings.llm_enabled", True)
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: gateway)
+
+    response = client.post(
+        "/qa/hybrid-rag",
+        json={"question": "路径企业的收入模式是什么？"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "路由已调用LLM。"
+    assert response.json()["retrieval"]["llm_used"] is True
+    assert len(gateway.calls) == 1

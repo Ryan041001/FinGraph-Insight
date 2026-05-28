@@ -25,6 +25,11 @@ def answer_with_hybrid_rag(
     fallback = answer_with_hybrid_context(question, graph, vector_store=vector_store, top_k=top_k)
 
     if gateway is None:
+        fallback["retrieval"] = {
+            **fallback["retrieval"],
+            "llm_used": False,
+            "answer_source": "fallback",
+        }
         return fallback
 
     try:
@@ -35,9 +40,22 @@ def answer_with_hybrid_rag(
             gateway=gateway,
         )
     except Exception:
+        fallback["retrieval"] = {
+            **fallback["retrieval"],
+            "llm_used": False,
+            "answer_source": "fallback",
+        }
         return fallback
 
-    return {**fallback, "answer": answer}
+    return {
+        **fallback,
+        "answer": answer,
+        "retrieval": {
+            **fallback["retrieval"],
+            "llm_used": True,
+            "answer_source": "llm",
+        },
+    }
 
 
 def extract_entity_from_question(question: object) -> str:
