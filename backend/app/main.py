@@ -6,8 +6,9 @@ from collections import OrderedDict
 from collections.abc import Iterable
 from queue import Empty, Queue
 from threading import RLock, Thread
+from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -36,6 +37,7 @@ from app.services.scheduler_service import (
     run_akshare_update,
     scheduler_status,
     shutdown_scheduler,
+    start_akshare_update_async,
     start_scheduler,
 )
 from app.services.self_refine_service import extract_with_self_refine
@@ -273,12 +275,20 @@ def get_company_profile(name: str, depth: int = 2, include_pending: bool = False
 
 
 @app.get("/graph/subgraph")
-def get_subgraph(entity: str, depth: int = 2, limit: int = 80) -> dict:
+def get_subgraph(
+    entity: str,
+    depth: int = Query(2, ge=1, le=3),
+    limit: int = Query(80, ge=1, le=200),
+) -> dict:
     return subgraph(entity, depth=depth, limit=limit)
 
 
 @app.get("/graph/path")
-def get_path(source: str, target: str, max_depth: int = 4) -> dict:
+def get_path(
+    source: str,
+    target: str,
+    max_depth: int = Query(4, ge=1, le=4),
+) -> dict:
     return paths(source, target, max_depth=max_depth)
 
 
@@ -475,7 +485,7 @@ def list_jobs() -> dict:
 
 @app.post("/jobs/akshare/run")
 def run_akshare_job() -> dict:
-    return run_akshare_update().model_dump()
+    return start_akshare_update_async().model_dump()
 
 
 @app.get("/jobs/{job_run_id}")
@@ -572,11 +582,11 @@ def stock_analysis_stream(payload: dict) -> StreamingResponse:
 @app.get("/market/kline/{stock_code}")
 def get_market_kline(
     stock_code: str,
-    market: str = "A",
-    period: str = "daily",
+    market: Literal["A", "HK"] = "A",
+    period: Literal["daily", "weekly", "monthly"] = "daily",
     start_date: str | None = None,
     end_date: str | None = None,
-    adjust: str = "qfq",
+    adjust: Literal["qfq", "hfq", ""] = "qfq",
 ) -> dict:
     try:
         return build_kline_response(

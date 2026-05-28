@@ -201,7 +201,7 @@ def test_manual_update_job_returns_log_contract(monkeypatch):
         jobs[job.job_run_id] = job
         return job
 
-    monkeypatch.setattr("app.main.run_akshare_update", fake_job)
+    monkeypatch.setattr("app.main.start_akshare_update_async", fake_job)
     monkeypatch.setattr("app.main.list_job_runs", lambda: list(jobs.values()))
     monkeypatch.setattr("app.main.get_job_run", lambda job_run_id: jobs.get(job_run_id))
 
@@ -479,7 +479,7 @@ def test_manual_akshare_run_uses_real_update_path(monkeypatch):
             failed_items=0,
         )
 
-    monkeypatch.setattr("app.main.run_akshare_update", fake_update)
+    monkeypatch.setattr("app.main.start_akshare_update_async", fake_update)
 
     response = client.post("/jobs/akshare/run")
 
@@ -673,6 +673,52 @@ def test_financial_dataset_import_uses_project_root_data_path(monkeypatch):
     profile_response = client.get("/graph/company/根目录数据企业")
     assert profile_response.status_code == 200
     assert profile_response.json()["company"]["name"] == "根目录数据企业"
+
+
+def test_akshare_run_returns_running_immediately_with_background_thread(monkeypatch):
+    completed_event = {"value": False}
+
+    def slow_fetcher():
+        import time
+        time.sleep(0.2)
+        completed_event["value"] = True
+        return []
+
+    monkeypatch.setattr("app.services.scheduler_service.fetch_akshare_news", slow_fetcher)
+    monkeypatch.setattr(
+        "app.services.scheduler_service._default_extractor",
+        lambda text: {"entities": [], "relationships": [], "warnings": []},
+    )
+    monkeypatch.setattr(
+        "app.services.scheduler_service._default_judge",
+        lambda payload: payload,
+    )
+
+    response = client.post("/jobs/akshare/run")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "running"
+    assert payload["finished_at"] is None
+    assert completed_event["value"] is False
+
+
+def test_graph_subgraph_rejects_invalid_depth_and_limit():
+    invalid_depth = client.get("/graph/subgraph", params={"entity": "邦盛科技", "depth": -1})
+    assert invalid_depth.status_code == 422
+    assert invalid_depth.json()["error"] == "invalid_input"
+
+    too_large_limit = client.get("/graph/subgraph", params={"entity": "邦盛科技", "limit": 9999})
+    assert too_large_limit.status_code == 422
+    assert any("limit" in field["field"] for field in too_large_limit.json()["fields"])
+
+
+def test_market_kline_rejects_unsupported_period(monkeypatch):
+    response = client.get("/market/kline/600000", params={"period": "yearly"})
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "invalid_input"
+    assert any("period" in field["field"] for field in response.json()["fields"])
 
 
 def test_text2cypher_memory_mode_returns_note_instead_of_full_graph(monkeypatch):

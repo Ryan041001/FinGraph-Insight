@@ -1,6 +1,7 @@
 from collections import OrderedDict
 from collections.abc import Callable
-from threading import RLock
+from datetime import datetime
+from threading import RLock, Thread
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -42,6 +43,51 @@ def run_akshare_update(
     )
     _record_job_run(job)
     return job
+
+
+def start_akshare_update_async(
+    fetcher: Callable[[], list[dict[str, str]]] = fetch_akshare_news,
+    extractor: Callable[[str], dict] | None = None,
+    judge: Callable[[dict], dict] | None = None,
+    importer: Callable[[dict], ImportStats] = import_extraction_payload_runtime,
+) -> JobRun:
+    started_at = datetime.now().isoformat(timespec="seconds")
+    job_run_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+    initial = JobRun(
+        job_run_id=job_run_id,
+        status="running",
+        started_at=started_at,
+        finished_at=None,
+        new_documents=0,
+        new_entities=0,
+        new_relationships=0,
+        failed_items=0,
+    )
+    _record_job_run(initial)
+
+    def worker() -> None:
+        try:
+            completed = run_extraction_pipeline(
+                fetcher=fetcher,
+                extractor=extractor or _default_extractor,
+                judge=judge or _default_judge,
+                importer=importer,
+            )
+            final = completed.model_copy(update={"job_run_id": job_run_id, "started_at": started_at})
+            _record_job_run(final)
+        except Exception:
+            _record_job_run(
+                JobRun(
+                    job_run_id=job_run_id,
+                    status="failed",
+                    started_at=started_at,
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                    failed_items=1,
+                )
+            )
+
+    Thread(target=worker, daemon=True).start()
+    return initial
 
 
 def list_job_runs() -> list[JobRun]:
