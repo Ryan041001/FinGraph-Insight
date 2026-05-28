@@ -1,12 +1,12 @@
 from app.services.extraction_service import (
-    judge_extraction_with_deepseek,
-    extract_with_deepseek,
-    refine_extraction_with_deepseek,
+    judge_extraction_with_llm,
+    extract_with_llm,
+    refine_extraction_with_llm,
 )
-from app.services.graph_rag_service import answer_with_deepseek_graph_context
+from app.services.graph_rag_service import answer_with_llm_graph_context
 from app.services.mock_data import sample_graph
 from app.services.self_refine_service import extract_with_self_refine
-from app.services.text2cypher_service import generate_cypher_with_deepseek
+from app.services.text2cypher_service import generate_cypher_with_llm
 from tests.test_api_contract import client
 
 
@@ -81,7 +81,7 @@ def test_extract_with_self_refine_refines_when_critique_reports_issues():
     assert payload["relationships"][0]["status"] == "confirmed"
 
 
-def test_extract_with_deepseek_parses_structured_json():
+def test_extract_with_llm_parses_structured_json():
     gateway = FakeGateway(
         """
         {
@@ -105,7 +105,7 @@ def test_extract_with_deepseek_parses_structured_json():
         """
     )
 
-    payload = extract_with_deepseek("星河数据完成B轮融资，红杉资本领投。", gateway)
+    payload = extract_with_llm("星河数据完成B轮融资，红杉资本领投。", gateway)
 
     assert payload["entities"][0]["name"] == "星河数据"
     assert payload["relationships"][0]["relation"] == "INVESTED_IN"
@@ -113,7 +113,7 @@ def test_extract_with_deepseek_parses_structured_json():
     assert gateway.calls[0]["task"] == "extraction"
 
 
-def test_judge_extraction_with_deepseek_updates_confidence_and_status():
+def test_judge_extraction_with_llm_updates_confidence_and_status():
     payload = {
         "document": {"content_hash": "doc_1"},
         "entities": [],
@@ -130,7 +130,7 @@ def test_judge_extraction_with_deepseek_updates_confidence_and_status():
     }
     gateway = FakeGateway('{"judgements":[{"temp_id":"r1","confidence":0.94,"reason":"原文明确支持"}]}')
 
-    judged = judge_extraction_with_deepseek(payload, gateway)
+    judged = judge_extraction_with_llm(payload, gateway)
 
     assert judged["relationships"][0]["confidence"] == 0.94
     assert judged["relationships"][0]["status"] == "confirmed"
@@ -138,7 +138,7 @@ def test_judge_extraction_with_deepseek_updates_confidence_and_status():
     assert gateway.calls[0]["task"] == "judge"
 
 
-def test_refine_extraction_with_deepseek_normalizes_refined_payload():
+def test_refine_extraction_with_llm_normalizes_refined_payload():
     initial_payload = {
         "document": {"content_hash": "doc_1"},
         "entities": [
@@ -170,7 +170,7 @@ def test_refine_extraction_with_deepseek_normalizes_refined_payload():
         """
     )
 
-    refined = refine_extraction_with_deepseek("星河数据完成B轮融资，红杉资本领投。", initial_payload, gateway)
+    refined = refine_extraction_with_llm("星河数据完成B轮融资，红杉资本领投。", initial_payload, gateway)
 
     assert len(refined["entities"]) == 3
     assert refined["relationships"][0]["relation"] == "INVESTED_IN"
@@ -178,10 +178,10 @@ def test_refine_extraction_with_deepseek_normalizes_refined_payload():
     assert gateway.calls[0]["task"] == "extraction"
 
 
-def test_generate_cypher_with_deepseek_sanitizes_model_output():
+def test_generate_cypher_with_llm_sanitizes_model_output():
     gateway = FakeGateway('{"cypher": "MATCH (c:Company) RETURN c"}')
 
-    cypher, rules = generate_cypher_with_deepseek("查询所有公司", gateway)
+    cypher, rules = generate_cypher_with_llm("查询所有公司", gateway)
 
     assert cypher == "MATCH (c:Company) RETURN c LIMIT 50"
     assert "limit_added" in rules
@@ -244,11 +244,11 @@ def test_text2cypher_route_uses_configured_llm_when_enabled(monkeypatch):
     assert response.json()["cypher"] == "MATCH (c:Company) RETURN c LIMIT 50"
 
 
-def test_answer_with_deepseek_graph_context_preserves_graph_and_citations():
+def test_answer_with_llm_graph_context_preserves_graph_and_citations():
     gateway = FakeGateway('{"answer":"根据图谱，星河数据获得B轮融资。"}')
     graph = sample_graph("星河数据")
 
-    response = answer_with_deepseek_graph_context("星河数据融资情况？", graph, gateway)
+    response = answer_with_llm_graph_context("星河数据融资情况？", graph, gateway)
 
     assert response["answer"] == "根据图谱，星河数据获得B轮融资。"
     assert response["supporting_graph"]["nodes"]

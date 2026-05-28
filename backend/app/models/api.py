@@ -37,6 +37,7 @@ class HealthResponse(BaseModel):
 class ExtractOptions(BaseModel):
     self_refine: bool = True
     judge: bool = True
+    mock: bool = False
 
 
 class ExtractRequest(BaseModel):

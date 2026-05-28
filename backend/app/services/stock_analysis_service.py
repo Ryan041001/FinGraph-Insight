@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from app.models.api import GraphPayload
-from app.services.grok_news_service import search_news_events_with_grok
+from app.services.news_service import search_news_events
 from app.services.graph_store import graph_store
 from app.services.llm_service import LLMGateway, LLMTask
 
@@ -20,7 +20,7 @@ def build_stock_analysis(payload: dict[str, Any], news_gateway: LLMGateway | Non
 
     news_events = _events_from_graph(graph)
     if payload.get("refresh_news") and news_gateway is not None:
-        news_events = [*search_news_events_with_grok(company_name, news_gateway), *news_events]
+        news_events = [*search_news_events(company_name, news_gateway), *news_events]
 
     return {
         "target": {
@@ -47,8 +47,12 @@ def build_stock_analysis(payload: dict[str, Any], news_gateway: LLMGateway | Non
     }
 
 
-def build_stock_analysis_with_deepseek(payload: dict[str, Any], gateway: LLMGateway) -> dict[str, Any]:
+def build_stock_analysis_with_llm(payload: dict[str, Any], gateway: LLMGateway) -> dict[str, Any]:
     base = build_stock_analysis(payload)
+    return summarize_stock_analysis_with_llm(base, gateway)
+
+
+def summarize_stock_analysis_with_llm(base: dict[str, Any], gateway: LLMGateway) -> dict[str, Any]:
     content = gateway.complete(
         task=LLMTask.STOCK_ANALYSIS,
         messages=[
@@ -66,8 +70,7 @@ def build_stock_analysis_with_deepseek(payload: dict[str, Any], gateway: LLMGate
     )
     analysis = json.loads(content)
     analysis["disclaimer"] = DISCLAIMER
-    base["analysis"] = analysis
-    return base
+    return {**base, "analysis": analysis}
 
 
 def _company_industry(graph: GraphPayload) -> str:

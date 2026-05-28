@@ -23,10 +23,16 @@ GET /health
 ```json
 {
   "status": "ok",
-  "neo4j": "ok",
+  "neo4j": "memory",
   "scheduler": "running"
 }
 ```
+
+说明：
+
+- `neo4j=memory`：当前后端使用内存图运行态，适合本地开发、自动化测试和课程演示兜底。
+- `neo4j=ok`：当 `GRAPH_BACKEND=neo4j` 时，后端已真实探活 Neo4j 连接。
+- `neo4j=unavailable`：当 `GRAPH_BACKEND=neo4j` 时，Neo4j 不可连接。
 
 ### 2.2 实时抽取
 
@@ -39,7 +45,11 @@ POST /extract
 ```json
 {
   "text": "红杉资本领投了某科技公司B轮融资。",
-  "write_to_graph": false
+  "options": {
+    "self_refine": true,
+    "judge": true,
+    "mock": false
+  }
 }
 ```
 
@@ -47,11 +57,17 @@ POST /extract
 
 ```json
 {
+  "document": {
+    "title": null,
+    "content_hash": "..."
+  },
   "entities": [],
   "relationships": [],
   "warnings": []
 }
 ```
+
+说明：`options.mock=true` 时使用本地规则抽取，不依赖外部 LLM，适合演示和自动化集成测试。
 
 ### 2.3 抽取结果入库
 
@@ -61,8 +77,10 @@ POST /graph/import
 
 用途：
 
-- 将前端确认后的抽取结果写入 Neo4j。
+- 将前端确认后的抽取结果写入图谱运行态。
 - 入库前再次做实体消歧、关系 ID 计算和置信度校验。
+- 当前所有写入都会进入内存图，保证查询接口即时可用。
+- 当 `GRAPH_BACKEND=neo4j` 时，同时写穿 Neo4j；本机没有 Neo4j 时只能验证到内存图链路。
 
 ### 2.4 企业画像
 
@@ -106,12 +124,24 @@ POST /qa/graph-rag
 ```json
 {
   "answer": "根据图谱信息...",
-  "supporting_subgraph": {
+  "supporting_graph": {
     "nodes": [],
     "edges": []
-  }
+  },
+  "citations": [],
+  "retrieval": {}
 }
 ```
+
+流式接口：
+
+```text
+POST /qa/graph-rag/stream
+POST /qa/hybrid-rag/stream
+POST /analysis/stock/stream
+```
+
+流式接口使用 SSE，事件包括 `metadata`、`ping`、`delta`、`done`、`error`。
 
 ### 2.7 Text2Cypher
 
@@ -124,7 +154,10 @@ POST /qa/text2cypher
 ```json
 {
   "cypher": "MATCH ... RETURN ... LIMIT 50",
-  "result": [],
+  "table": {
+    "columns": [],
+    "rows": []
+  },
   "graph": {
     "nodes": [],
     "edges": []
@@ -135,6 +168,8 @@ POST /qa/text2cypher
   }
 }
 ```
+
+当前限制：后端已实现只读安全校验和 LLM 不可用时的安全模板降级，但尚未执行真实 Neo4j 查询。
 
 ### 2.8 定时任务状态
 
@@ -209,7 +244,9 @@ Text2Cypher 是高风险功能，必须限制。
 4. 检查是否是只读语句。
 5. 检查是否设置 `LIMIT`。
 6. 检查路径深度。
-7. 校验通过才执行。
+7. 校验通过后才允许进入执行层。
+
+当前实现已完成 1 到 6 和安全模板返回；真实 Neo4j 执行层仍待补齐。
 
 ### 3.4 失败返回
 
@@ -233,7 +270,10 @@ NEO4J_USER=neo4j
 NEO4J_PASSWORD=password
 OPENAI_API_KEY=
 OPENAI_BASE_URL=
-LLM_MODEL=deepseek-chat
+LLM_MODEL=
+LLM_TIMEOUT_SECONDS=120
+GRAPH_BACKEND=memory
+MARKET_LIVE_ENABLED=false
 SCHEDULER_ENABLED=true
 AKSHARE_UPDATE_CRON=0 */6 * * *
 ```
@@ -253,7 +293,7 @@ AKSHARE_UPDATE_CRON=0 */6 * * *
 
 ## 6. 最小测试用例
 
-- `/health` 能检测 Neo4j 连接。
+- `/health` 在 memory 模式返回 `neo4j=memory`，在 Neo4j 模式能检测真实连接。
 - `/extract` 对标准新闻返回合法结构。
 - `/graph/import` 重复调用不产生重复关系。
 - `/qa/text2cypher` 拒绝 `DELETE`、`SET`、`MERGE`。

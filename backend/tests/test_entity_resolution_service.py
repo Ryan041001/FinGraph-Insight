@@ -1,5 +1,5 @@
 from app.services.entity_resolution_service import EntityResolver, normalize_entity_name
-from app.services.extraction_service import extract_with_deepseek
+from app.services.extraction_service import extract_with_llm
 
 
 class FakeGateway:
@@ -58,7 +58,7 @@ def test_entity_resolver_supports_exact_normalized_alias_and_fuzzy_matches():
     assert fuzzy["candidates"][0]["name"] == "星河数据"
 
 
-def test_extract_with_deepseek_uses_entity_resolver_for_resolved_ids(monkeypatch):
+def test_extract_with_llm_uses_entity_resolver_for_resolved_ids(monkeypatch):
     resolver = EntityResolver(
         aliases={"红杉中国": "红杉资本中国基金"},
         candidates=[
@@ -68,7 +68,7 @@ def test_extract_with_deepseek_uses_entity_resolver_for_resolved_ids(monkeypatch
     )
     monkeypatch.setattr("app.services.extraction_service.entity_resolver", resolver)
 
-    payload = extract_with_deepseek("星河数据有限公司完成B轮融资，红杉中国领投。", FakeGateway())
+    payload = extract_with_llm("星河数据有限公司完成B轮融资，红杉中国领投。", FakeGateway())
 
     by_name = {entity["name"]: entity for entity in payload["entities"]}
 

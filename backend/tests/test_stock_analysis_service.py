@@ -1,4 +1,4 @@
-from app.services.stock_analysis_service import build_stock_analysis, build_stock_analysis_with_deepseek
+from app.services.stock_analysis_service import build_stock_analysis, build_stock_analysis_with_llm
 
 
 class FakeGateway:
@@ -32,7 +32,7 @@ def test_build_stock_analysis_binds_graph_evidence_and_disclaimer():
     )
 
 
-def test_build_stock_analysis_can_refresh_news_with_grok_gateway():
+def test_build_stock_analysis_can_refresh_news_with_llm_gateway():
     response = build_stock_analysis(
         {
             "stock_code": "600000",
@@ -46,8 +46,8 @@ def test_build_stock_analysis_can_refresh_news_with_grok_gateway():
     assert response["news_events"][0]["source_url"] == "https://example.com"
 
 
-def test_build_stock_analysis_with_deepseek_overrides_analysis_block():
-    response = build_stock_analysis_with_deepseek(
+def test_build_stock_analysis_with_llm_overrides_analysis_block():
+    response = build_stock_analysis_with_llm(
         {"stock_code": "600000", "company_name": "浦发银行"},
         gateway=FakeAnalysisGateway(),
     )

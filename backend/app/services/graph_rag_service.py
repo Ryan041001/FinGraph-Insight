@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.models.api import GraphPayload
+from app.services.format_prompt import HTML_CHAT_FORMAT_INSTRUCTIONS
 from app.services.llm_service import LLMGateway, LLMTask
 from app.services.vector_store import InMemoryVectorStore, vector_store as default_vector_store
 import json
@@ -67,7 +68,7 @@ def answer_with_hybrid_context(
     return base
 
 
-def answer_with_deepseek_graph_context(question: str, graph: GraphPayload, gateway: LLMGateway) -> dict:
+def answer_with_llm_graph_context(question: str, graph: GraphPayload, gateway: LLMGateway) -> dict:
     content = gateway.complete(
         task=LLMTask.GRAPH_RAG,
         messages=[
@@ -75,7 +76,9 @@ def answer_with_deepseek_graph_context(question: str, graph: GraphPayload, gatew
                 "role": "system",
                 "content": (
                     "你是金融知识图谱问答助手。只能基于用户提供的 supporting_graph 回答。"
-                    "请输出 json：{\"answer\":\"...\"}。不得编造图谱外事实。"
+                    "请输出 json：{\"answer\":\"...\"}，answer 字段可使用 Markdown 和受控局部 HTML。"
+                    "不得编造图谱外事实。"
+                    f"\n{HTML_CHAT_FORMAT_INSTRUCTIONS}"
                 ),
             },
             {

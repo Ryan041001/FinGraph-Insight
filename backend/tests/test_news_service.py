@@ -1,4 +1,4 @@
-from app.services.grok_news_service import search_news_events_with_grok
+from app.services.news_service import search_news_events
 
 
 class FakeGateway:
@@ -11,7 +11,7 @@ class FakeGateway:
         return self.content
 
 
-def test_search_news_events_with_grok_parses_structured_events():
+def test_search_news_events_parses_structured_events():
     gateway = FakeGateway(
         """
         {
@@ -29,7 +29,7 @@ def test_search_news_events_with_grok_parses_structured_events():
         """
     )
 
-    events = search_news_events_with_grok("示例公司", gateway)
+    events = search_news_events("示例公司", gateway)
 
     assert events[0]["event_type"] == "litigation"
     assert events[0]["source_url"] == "https://example.com/news"

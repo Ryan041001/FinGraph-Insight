@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from app.models.api import GraphPayload
+from app.services.format_prompt import HTML_CHAT_FORMAT_INSTRUCTIONS
 from app.services.graph_rag_service import answer_with_hybrid_context
 from app.services.graph_store import InMemoryGraphStore, graph_store as default_graph_store
 from app.services.llm_service import LLMGateway, LLMTask
@@ -89,7 +90,9 @@ def _answer_with_llm(
                 "role": "system",
                 "content": (
                     "你是金融知识图谱问答助手。只能基于 supporting_graph 和 document_context 回答，"
-                    "优先使用图谱关系，文档片段作为补充。严格输出 json：{\"answer\":\"...\"}。"
+                    "优先使用图谱关系，文档片段作为补充。严格输出 json：{\"answer\":\"...\"}，"
+                    "answer 字段可使用 Markdown 和受控局部 HTML。"
+                    f"\n{HTML_CHAT_FORMAT_INSTRUCTIONS}"
                 ),
             },
             {

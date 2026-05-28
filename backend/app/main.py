@@ -1,19 +1,26 @@
 from pathlib import Path
 from contextlib import asynccontextmanager
+import json
+from collections.abc import Iterable
+from queue import Empty, Queue
+from threading import Thread
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.responses import StreamingResponse
 
 from app.config import settings
 from app.data.financial_dataset_loader import load_financial_dataset_directory
 from app.models.api import DocumentIndexRequest, ExtractRequest, HealthResponse, Text2CypherRequest, Text2CypherSafety
+from app.neo4j.connection import check_neo4j_health, create_neo4j_driver
 from app.services.extraction_service import (
     extract_mock,
-    extract_with_deepseek,
-    judge_extraction_with_deepseek,
+    extract_with_llm,
+    judge_extraction_with_llm,
 )
-from app.services.graph_rag_service import answer_with_deepseek_graph_context, answer_with_hybrid_context
+from app.services.format_prompt import HTML_CHAT_FORMAT_INSTRUCTIONS
+from app.services.graph_rag_service import answer_with_llm_graph_context, answer_with_hybrid_context
 from app.services.graph_query_service import company_profile, paths, subgraph
 from app.services.graph_runtime import import_extraction_payload_runtime, import_graph_runtime
 from app.services.graph_store import graph_store
@@ -30,9 +37,12 @@ from app.services.scheduler_service import (
     start_scheduler,
 )
 from app.services.self_refine_service import extract_with_self_refine
-from app.services.stock_analysis_service import build_stock_analysis, build_stock_analysis_with_deepseek
-from app.services.llm_service import HttpLLMGateway
-from app.services.text2cypher_service import answer_text2cypher, generate_cypher_with_deepseek
+from app.services.stock_analysis_service import (
+    build_stock_analysis,
+    summarize_stock_analysis_with_llm,
+)
+from app.services.llm_service import HttpLLMGateway, LLMTask
+from app.services.text2cypher_service import answer_text2cypher, generate_cypher_with_llm
 from app.services.vector_store import vector_store
 
 
@@ -55,6 +65,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+_stock_analysis_cache: dict[str, dict] = {}
+SSE_HEARTBEAT_SECONDS = 8.0
+
 
 def _raise_llm_error(exc: Exception) -> None:
     raise HTTPException(
@@ -68,7 +81,23 @@ def _raise_llm_error(exc: Exception) -> None:
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    return HealthResponse(status="ok", neo4j=graph_store.health_status(), scheduler=scheduler_status())
+    return HealthResponse(status="ok", neo4j=_graph_health_status(), scheduler=scheduler_status())
+
+
+def _graph_health_status() -> str:
+    if settings.graph_backend.lower() != "neo4j":
+        return graph_store.health_status()
+
+    driver = None
+    try:
+        driver = create_neo4j_driver()
+        return check_neo4j_health(driver)
+    except Exception:
+        return "unavailable"
+    finally:
+        close = getattr(driver, "close", None)
+        if callable(close):
+            close()
 
 
 @app.post("/datasets/import")
@@ -107,14 +136,17 @@ def _load_dataset_graph(dataset: str):
 
 @app.post("/extract")
 def extract(request: ExtractRequest) -> dict:
+    if request.options.mock:
+        return extract_mock(request.text)
+
     try:
         gateway = HttpLLMGateway()
         if request.options.self_refine:
             payload = extract_with_self_refine(request.text, gateway)
         else:
-            payload = extract_with_deepseek(request.text, gateway)
+            payload = extract_with_llm(request.text, gateway)
         if request.options.judge:
-            payload = judge_extraction_with_deepseek(payload, gateway)
+            payload = judge_extraction_with_llm(payload, gateway)
         return payload
     except Exception as exc:
         _raise_llm_error(exc)
@@ -152,7 +184,7 @@ def graph_rag(payload: dict) -> dict:
     company_name = extract_company_name_from_question(payload.get("question"))
     graph = graph_store.subgraph(company_name)
     try:
-        response = answer_with_deepseek_graph_context(str(payload.get("question", "")), graph, HttpLLMGateway())
+        response = answer_with_llm_graph_context(str(payload.get("question", "")), graph, HttpLLMGateway())
         hybrid = answer_with_hybrid_context(str(payload.get("question", "")), graph)
         response["document_context"] = hybrid["document_context"]
         response["retrieval"] = {
@@ -166,6 +198,54 @@ def graph_rag(payload: dict) -> dict:
         _raise_llm_error(exc)
 
 
+@app.post("/qa/graph-rag/stream")
+def graph_rag_stream(payload: dict) -> StreamingResponse:
+    question = str(payload.get("question", ""))
+    company_name = extract_company_name_from_question(question)
+    graph = graph_store.subgraph(company_name)
+    fallback = answer_with_hybrid_context(question, graph)
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "你是金融知识图谱问答助手。只能基于用户提供的 supporting_graph 和 document_context 回答。"
+                "直接输出适合前端逐字展示的中文回答，不要输出 JSON、Cypher 或 Markdown 表格。"
+                f"\n{HTML_CHAT_FORMAT_INSTRUCTIONS}"
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "question": question,
+                    "supporting_graph": graph.model_dump(),
+                    "document_context": fallback["document_context"],
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
+    token_stream = HttpLLMGateway().stream_complete(
+        task=LLMTask.GRAPH_RAG_STREAM,
+        messages=messages,
+        temperature=0,
+        max_tokens=1024,
+    )
+    return _sse_stream(
+        token_stream,
+        metadata={
+            "supporting_graph": graph.model_dump(),
+            "citations": fallback["citations"],
+            "tool_calls": _graph_tool_calls(company_name),
+            "retrieval": {
+                **fallback["retrieval"],
+                "llm_used": True,
+                "answer_source": "llm_stream",
+            },
+        },
+    )
+
+
 @app.post("/qa/hybrid-rag")
 def hybrid_rag(payload: dict) -> dict:
     question = str(payload.get("question", ""))
@@ -174,6 +254,56 @@ def hybrid_rag(payload: dict) -> dict:
         return answer_with_hybrid_rag(question, entity=entity, gateway=HttpLLMGateway())
     except Exception as exc:
         _raise_llm_error(exc)
+
+
+@app.post("/qa/hybrid-rag/stream")
+def hybrid_rag_stream(payload: dict) -> StreamingResponse:
+    question = str(payload.get("question", ""))
+    entity = payload.get("entity")
+    target_entity = str(entity) if entity else extract_company_name_from_question(question)
+    graph = graph_store.subgraph(target_entity)
+    fallback = answer_with_hybrid_context(question, graph)
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "你是金融知识图谱问答助手。只能基于 supporting_graph 和 document_context 回答，"
+                "直接输出适合前端逐字展示的中文回答，不要输出 JSON。"
+                f"\n{HTML_CHAT_FORMAT_INSTRUCTIONS}"
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "question": question,
+                    "supporting_graph": graph.model_dump(),
+                    "document_context": fallback["document_context"],
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
+    token_stream = HttpLLMGateway().stream_complete(
+        task=LLMTask.GRAPH_RAG_STREAM,
+        messages=messages,
+        temperature=0,
+        max_tokens=1024,
+    )
+    return _sse_stream(
+        token_stream,
+        metadata={
+            "supporting_graph": graph.model_dump(),
+            "document_context": fallback["document_context"],
+            "citations": fallback["citations"],
+            "tool_calls": _graph_tool_calls(target_entity),
+            "retrieval": {
+                **fallback["retrieval"],
+                "llm_used": True,
+                "answer_source": "llm_stream",
+            },
+        },
+    )
 
 
 @app.post("/rag/documents")
@@ -207,8 +337,9 @@ def extract_company_name_from_question(question: object) -> str:
 @app.post("/qa/text2cypher")
 def text2cypher(request: Text2CypherRequest):
     try:
-        if answer_text2cypher(request.question).safety.passed:
-            cypher, rules = generate_cypher_with_deepseek(request.question, HttpLLMGateway())
+        fallback = answer_text2cypher(request.question)
+        if fallback.safety.passed:
+            cypher, rules = generate_cypher_with_llm(request.question, HttpLLMGateway())
             return {
                 "cypher": cypher,
                 "safety": Text2CypherSafety(passed=True, rules=rules).model_dump(),
@@ -225,7 +356,10 @@ def text2cypher(request: Text2CypherRequest):
             },
         )
     except Exception as exc:
-        _raise_llm_error(exc)
+        fallback = answer_text2cypher(request.question)
+        fallback.safety.rules.append("llm_fallback")
+        fallback.safety.reason = f"LLM unavailable, returned safe template: {exc}"
+        return fallback.model_dump()
 
 
 @app.get("/jobs")
@@ -258,19 +392,69 @@ def evaluate_metrics() -> dict:
 
 @app.post("/analysis/stock")
 def stock_analysis(payload: dict) -> dict:
-    try:
-        if payload.get("refresh_news"):
-            gateway = HttpLLMGateway()
-            enriched = build_stock_analysis(payload, news_gateway=gateway)
-            return build_stock_analysis_with_deepseek(enriched, gateway)
-        return build_stock_analysis_with_deepseek(payload, HttpLLMGateway())
-    except Exception as exc:
-        _raise_llm_error(exc)
+    use_llm = bool(payload.get("use_llm", False))
+    if payload.get("refresh_news"):
+        try:
+            result = build_stock_analysis(payload, news_gateway=HttpLLMGateway())
+        except Exception as exc:
+            result = build_stock_analysis({**payload, "refresh_news": False})
+            missing_data = result["analysis"].setdefault("missing_data", [])
+            missing_data.append(f"新闻补充暂不可用，已使用本地图谱事件：{exc}")
+    else:
+        result = build_stock_analysis(payload)
+
+    if use_llm:
+        try:
+            result = summarize_stock_analysis_with_llm(result, HttpLLMGateway())
+        except Exception as exc:
+            missing_data = result["analysis"].setdefault("missing_data", [])
+            missing_data.append(f"模型研判暂不可用，已返回本地图谱摘要：{exc}")
+
+    stock_code = str(result.get("target", {}).get("stock_code") or payload.get("stock_code") or "")
+    if stock_code:
+        _stock_analysis_cache[stock_code] = result
+    return result
 
 
 @app.get("/analysis/stock/{stock_code}/latest")
 def latest_stock_analysis(stock_code: str) -> dict:
-    return stock_analysis({"stock_code": stock_code, "company_name": "示例科技"})
+    cached = _stock_analysis_cache.get(stock_code)
+    if cached:
+        return cached
+    return build_stock_analysis({"stock_code": stock_code, "company_name": stock_code})
+
+
+@app.post("/analysis/stock/stream")
+def stock_analysis_stream(payload: dict) -> StreamingResponse:
+    base = build_stock_analysis(payload)
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "你是图谱增强金融研判助手。只能基于输入材料生成研究辅助摘要。"
+                "直接输出适合前端逐字展示的中文文本，必须包含风险提示和免责声明，"
+                "不得输出买入、卖出、目标价或收益承诺。"
+                f"\n{HTML_CHAT_FORMAT_INSTRUCTIONS}"
+            ),
+        },
+        {"role": "user", "content": json.dumps(base, ensure_ascii=False)},
+    ]
+    token_stream = HttpLLMGateway().stream_complete(
+        task=LLMTask.STOCK_ANALYSIS_STREAM,
+        messages=messages,
+        temperature=0.1,
+        max_tokens=2048,
+    )
+    return _sse_stream(
+        token_stream,
+        metadata={
+            "target": base["target"],
+            "fundamentals": base["fundamentals"],
+            "news_events": base["news_events"],
+            "subgraph": base["subgraph"],
+            "tool_calls": _stock_tool_calls(base["target"]),
+        },
+    )
 
 
 @app.get("/market/kline/{stock_code}")
@@ -299,3 +483,106 @@ def get_market_kline(
         end_date=end_date,
         adjust=adjust,
     )
+
+
+def _sse_stream(token_stream: Iterable[str], metadata: dict) -> StreamingResponse:
+    def events():
+        yield _sse_event("metadata", metadata)
+        queue: Queue[tuple[str, str | Exception | None]] = Queue()
+        collected: list[str] = []
+
+        def collect_tokens() -> None:
+            try:
+                for token in token_stream:
+                    if token:
+                        queue.put(("token", str(token)))
+                queue.put(("done", None))
+            except Exception as exc:
+                queue.put(("error", exc))
+
+        Thread(target=collect_tokens, daemon=True).start()
+
+        while True:
+            try:
+                event_type, value = queue.get(timeout=SSE_HEARTBEAT_SECONDS)
+            except Empty:
+                yield _sse_event("ping", {"status": "waiting"})
+                continue
+
+            if event_type == "token" and isinstance(value, str):
+                collected.append(value)
+                yield _sse_event("delta", {"text": value})
+                continue
+
+            if event_type == "done":
+                yield _sse_event("done", {"text": "".join(collected)})
+                break
+
+            if event_type == "error":
+                yield _sse_event("error", {"error": "llm_error", "message": str(value)})
+                break
+
+    return StreamingResponse(events(), media_type="text/event-stream")
+
+
+def _graph_tool_calls(entity: str) -> list[dict]:
+    return [
+        {
+            "id": "open-company-profile",
+            "label": "查看企业画像",
+            "description": "打开企业画像、风险标记和证据边详情。",
+            "method": "GET",
+            "endpoint": f"/graph/company/{entity}",
+        },
+        {
+            "id": "open-subgraph",
+            "label": "展开关系子图",
+            "description": "查看该实体 2 跳内的节点、关系和证据。",
+            "method": "GET",
+            "endpoint": "/graph/subgraph",
+            "params": {"entity": entity, "depth": 2, "limit": 80},
+        },
+        {
+            "id": "ask-hybrid-followup",
+            "label": "追问文档证据",
+            "description": "用 Hybrid RAG 针对该实体继续追问。",
+            "method": "POST",
+            "endpoint": "/qa/hybrid-rag/stream",
+            "body": {"entity": entity},
+            "stream": True,
+        },
+    ]
+
+
+def _stock_tool_calls(target: dict) -> list[dict]:
+    stock_code = str(target.get("stock_code") or "")
+    company_name = str(target.get("company_name") or stock_code)
+    return [
+        {
+            "id": "open-kline-events",
+            "label": "查看K线事件",
+            "description": "打开行情 K 线和图谱事件标注。",
+            "method": "GET",
+            "endpoint": f"/market/kline/{stock_code}",
+            "params": {"market": "A", "period": "daily"},
+        },
+        {
+            "id": "open-company-profile",
+            "label": "查看关联图谱",
+            "description": "查看上市主体的图谱画像与证据边。",
+            "method": "GET",
+            "endpoint": f"/graph/company/{company_name}",
+        },
+        {
+            "id": "refresh-news-context",
+            "label": "补充新闻上下文",
+            "description": "重新调用新闻补充并返回结构化研判。",
+            "method": "POST",
+            "endpoint": "/analysis/stock",
+            "body": {"stock_code": stock_code, "company_name": company_name, "refresh_news": True},
+        },
+    ]
+
+
+def _sse_event(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"

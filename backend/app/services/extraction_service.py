@@ -81,7 +81,7 @@ def extract_financial_text(text: str) -> dict:
     }
 
 
-def extract_with_deepseek(text: str, gateway: LLMGateway) -> dict:
+def extract_with_llm(text: str, gateway: LLMGateway) -> dict:
     content = gateway.complete(
         task=LLMTask.EXTRACTION,
         messages=[
@@ -102,7 +102,7 @@ def extract_with_deepseek(text: str, gateway: LLMGateway) -> dict:
     return _normalize_llm_extraction(text, raw)
 
 
-def refine_extraction_with_deepseek(text: str, payload: dict[str, Any], gateway: LLMGateway) -> dict[str, Any]:
+def refine_extraction_with_llm(text: str, payload: dict[str, Any], gateway: LLMGateway) -> dict[str, Any]:
     content = gateway.complete(
         task=LLMTask.EXTRACTION,
         messages=[
@@ -128,7 +128,7 @@ def refine_extraction_with_deepseek(text: str, payload: dict[str, Any], gateway:
     return _normalize_llm_extraction(text, raw)
 
 
-def judge_extraction_with_deepseek(payload: dict[str, Any], gateway: LLMGateway) -> dict[str, Any]:
+def judge_extraction_with_llm(payload: dict[str, Any], gateway: LLMGateway) -> dict[str, Any]:
     content = gateway.complete(
         task=LLMTask.JUDGE,
         messages=[

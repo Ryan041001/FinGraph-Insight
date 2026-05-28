@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.services.extraction_service import _normalize_llm_extraction, extract_with_deepseek
+from app.services.extraction_service import _normalize_llm_extraction, extract_with_llm
 from app.services.llm_service import LLMGateway, LLMTask
 
 
@@ -12,7 +12,7 @@ def extract_with_self_refine(
     gateway: LLMGateway,
     max_iterations: int = 2,
 ) -> dict[str, Any]:
-    payload = extract_with_deepseek(text, gateway)
+    payload = extract_with_llm(text, gateway)
     for _ in range(max(0, max_iterations)):
         critique = critique_extraction(text, payload, gateway)
         if not critique.get("issues"):

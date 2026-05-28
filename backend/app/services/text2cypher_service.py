@@ -84,7 +84,7 @@ def answer_text2cypher(question: str) -> Text2CypherResponse:
     )
 
 
-def generate_cypher_with_deepseek(question: str, gateway: LLMGateway) -> tuple[str, list[str]]:
+def generate_cypher_with_llm(question: str, gateway: LLMGateway) -> tuple[str, list[str]]:
     content = gateway.complete(
         task=LLMTask.TEXT2CYPHER,
         messages=[

@@ -6,7 +6,7 @@ from typing import Any
 from app.services.llm_service import LLMGateway, LLMTask
 
 
-def search_news_events_with_grok(company_name: str, gateway: LLMGateway) -> list[dict[str, Any]]:
+def search_news_events(company_name: str, gateway: LLMGateway) -> list[dict[str, Any]]:
     content = gateway.complete(
         task=LLMTask.NEWS_SEARCH,
         messages=[

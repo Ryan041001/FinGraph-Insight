@@ -1,3 +1,5 @@
+import time
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -18,6 +20,42 @@ class FakeGateway:
         return self.content
 
 
+class FailingGateway:
+    def complete(self, *, task, messages, temperature=0.2, max_tokens=None):
+        raise TimeoutError("upstream timeout")
+
+
+class StreamingGateway:
+    def complete(self, *, task, messages, temperature=0.2, max_tokens=None):
+        return '{"answer":"非流式回答"}'
+
+    def stream_complete(self, *, task, messages, temperature=0.2, max_tokens=None):
+        yield "第一段"
+        yield "第二段"
+
+
+class DelayedStreamingGateway:
+    def complete(self, *, task, messages, temperature=0.2, max_tokens=None):
+        return '{"answer":"延迟回答"}'
+
+    def stream_complete(self, *, task, messages, temperature=0.2, max_tokens=None):
+        time.sleep(0.03)
+        yield "延迟段"
+
+
+class CapturingStreamingGateway:
+    def __init__(self):
+        self.messages = []
+
+    def complete(self, *, task, messages, temperature=0.2, max_tokens=None):
+        self.messages = messages
+        return '{"answer":"非流式回答"}'
+
+    def stream_complete(self, *, task, messages, temperature=0.2, max_tokens=None):
+        self.messages = messages
+        yield "HTML 输出测试"
+
+
 def test_health_reports_scheduler_and_graph_status():
     response = client.get("/health")
 
@@ -25,6 +63,18 @@ def test_health_reports_scheduler_and_graph_status():
     assert response.json()["status"] == "ok"
     assert response.json()["neo4j"] in {"memory", "ok", "unavailable"}
     assert response.json()["scheduler"] in {"running", "configured", "disabled"}
+
+
+def test_health_checks_real_neo4j_connectivity_when_backend_enabled(monkeypatch):
+    monkeypatch.setattr("app.main.settings.graph_backend", "neo4j")
+    monkeypatch.setattr("app.main.graph_store.health_status", lambda: "memory")
+    monkeypatch.setattr("app.main.create_neo4j_driver", lambda: object(), raising=False)
+    monkeypatch.setattr("app.main.check_neo4j_health", lambda driver: "ok", raising=False)
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["neo4j"] == "ok"
 
 
 def test_company_profile_returns_graph_contract():
@@ -164,6 +214,26 @@ def test_extract_uses_requested_text_entities_without_default_company_leak(monke
     assert "示例科技" not in rendered_payload
 
 
+def test_extract_route_supports_explicit_mock_mode_without_llm(monkeypatch):
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: FailingGateway())
+
+    response = client.post(
+        "/extract",
+        json={
+            "text": "端测云链科技有限公司完成Pre-A轮融资，端测高榕资本跟投。",
+            "options": {"mock": True, "self_refine": False, "judge": False},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    rendered_payload = str(payload)
+
+    assert "端测云链科技有限公司" in rendered_payload
+    assert "端测高榕资本" in rendered_payload
+    assert payload["relationships"]
+
+
 def test_graph_import_persists_confirmed_extraction_for_company_profile(monkeypatch):
     monkeypatch.setattr(
         "app.main.HttpLLMGateway",
@@ -229,6 +299,177 @@ def test_graph_import_route_uses_graph_runtime(monkeypatch):
     assert response.json()["nodes_matched"] == 2
     assert response.json()["relationships_created"] == 3
     assert response.json()["relationships_skipped"] == 4
+
+
+def test_text2cypher_route_falls_back_to_safe_template_when_llm_times_out(monkeypatch):
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: FailingGateway())
+
+    response = client.post("/qa/text2cypher", json={"question": "查询所有公司"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["safety"]["passed"] is True
+    assert "llm_fallback" in payload["safety"]["rules"]
+    assert payload["cypher"].startswith("MATCH")
+    assert payload["graph"]["nodes"]
+
+
+def test_latest_stock_analysis_returns_cached_or_local_analysis_without_llm(monkeypatch):
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: FailingGateway())
+
+    response = client.get("/analysis/stock/600000/latest")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["target"]["stock_code"] == "600000"
+    assert payload["analysis"]["disclaimer"] == "本结果仅用于课程项目演示和研究辅助，不构成投资建议。"
+
+
+def test_stock_analysis_defaults_to_fast_local_contract_without_llm(monkeypatch):
+    called = False
+
+    def unexpected_gateway():
+        nonlocal called
+        called = True
+        return FailingGateway()
+
+    monkeypatch.setattr("app.main.HttpLLMGateway", unexpected_gateway)
+
+    response = client.post(
+        "/analysis/stock",
+        json={"stock_code": "600000", "company_name": "端测云链科技有限公司"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert called is False
+    assert payload["target"]["stock_code"] == "600000"
+    assert payload["analysis"]["disclaimer"] == "本结果仅用于课程项目演示和研究辅助，不构成投资建议。"
+
+
+def test_stock_analysis_refresh_news_reports_news_fallback(monkeypatch):
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: FailingGateway())
+
+    response = client.post(
+        "/analysis/stock",
+        json={
+            "stock_code": "600000",
+            "company_name": "端测云链科技有限公司",
+            "refresh_news": True,
+        },
+    )
+
+    assert response.status_code == 200
+    missing_data = response.json()["analysis"]["missing_data"]
+    assert any("新闻补充暂不可用" in item for item in missing_data)
+
+
+def test_manual_akshare_run_uses_mock_extraction_for_stable_demo(monkeypatch):
+    monkeypatch.setattr("app.services.scheduler_service.HttpLLMGateway", lambda: FailingGateway())
+
+    response = client.post("/jobs/akshare/run")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert payload["new_documents"] >= 1
+    assert payload["failed_items"] == 0
+
+
+def test_graph_rag_stream_returns_sse_events(monkeypatch):
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: StreamingGateway())
+
+    response = client.post(
+        "/qa/graph-rag/stream",
+        json={"question": "端测云链科技有限公司：融资关系是什么？"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    body = response.text
+    assert "event: metadata" in body
+    assert "tool_calls" in body
+    assert "event: delta" in body
+    assert "第一段" in body
+    assert "第二段" in body
+    assert "event: done" in body
+
+
+def test_graph_rag_stream_prompt_supports_bounded_html_fragments(monkeypatch):
+    gateway = CapturingStreamingGateway()
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: gateway)
+
+    response = client.post(
+        "/qa/graph-rag/stream",
+        json={"question": "端测云链科技有限公司：融资关系是什么？"},
+    )
+
+    assert response.status_code == 200
+    system_prompt = gateway.messages[0]["content"]
+    assert "<!-- html-render-start -->" in system_prompt
+    assert "<!-- html-render-end -->" in system_prompt
+    assert "禁止输出 <!DOCTYPE html>" in system_prompt
+    assert "禁止 class 属性" in system_prompt
+
+
+def test_graph_rag_stream_sends_ping_while_waiting_for_llm(monkeypatch):
+    monkeypatch.setattr("app.main.SSE_HEARTBEAT_SECONDS", 0.01)
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: DelayedStreamingGateway())
+
+    response = client.post(
+        "/qa/graph-rag/stream",
+        json={"question": "端测云链科技有限公司：融资关系是什么？"},
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert "event: metadata" in body
+    assert "event: ping" in body
+    assert "event: delta" in body
+    assert "延迟段" in body
+    assert "event: done" in body
+
+
+def test_hybrid_rag_stream_returns_sse_events(monkeypatch):
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: StreamingGateway())
+
+    response = client.post(
+        "/qa/hybrid-rag/stream",
+        json={
+            "question": "端测云链科技有限公司：融资金额是多少？",
+            "entity": "端测云链科技有限公司",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    body = response.text
+    assert "event: metadata" in body
+    assert "document_context" in body
+    assert "tool_calls" in body
+    assert "event: delta" in body
+    assert "第一段" in body
+    assert "第二段" in body
+    assert "event: done" in body
+
+
+def test_stock_analysis_stream_returns_sse_events(monkeypatch):
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: StreamingGateway())
+
+    response = client.post(
+        "/analysis/stock/stream",
+        json={"stock_code": "600000", "company_name": "端测云链科技有限公司"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    body = response.text
+    assert "event: metadata" in body
+    assert "端测云链科技有限公司" in body
+    assert "tool_calls" in body
+    assert "event: delta" in body
+    assert "第一段" in body
+    assert "event: done" in body
 
 
 def test_dataset_import_is_idempotent_and_populates_queryable_graph():

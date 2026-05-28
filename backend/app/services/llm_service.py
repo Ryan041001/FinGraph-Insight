@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -14,7 +15,9 @@ class LLMTask(StrEnum):
     JUDGE = "judge"
     TEXT2CYPHER = "text2cypher"
     GRAPH_RAG = "graph_rag"
+    GRAPH_RAG_STREAM = "graph_rag_stream"
     STOCK_ANALYSIS = "stock_analysis"
+    STOCK_ANALYSIS_STREAM = "stock_analysis_stream"
     NEWS_SEARCH = "news_search"
     MARKET_NEWS = "market_news"
 
@@ -32,16 +35,25 @@ class ModelProfile:
 def select_model_profile(task: LLMTask) -> ModelProfile:
     if task in {LLMTask.NEWS_SEARCH, LLMTask.MARKET_NEWS}:
         return ModelProfile(
-            provider="grok",
-            model=settings.llm_model_grok,
+            provider="default",
+            model=settings.llm_model,
             purpose="实时消息面搜索与外部新闻补充",
             use_web_search=True,
             thinking=False,
         )
 
+    if task in {LLMTask.GRAPH_RAG_STREAM, LLMTask.STOCK_ANALYSIS_STREAM}:
+        return ModelProfile(
+            provider="default",
+            model=settings.llm_model,
+            purpose="面向前端逐字展示的自然语言生成",
+            use_json_output=False,
+            thinking=True,
+        )
+
     return ModelProfile(
-        provider="deepseek",
-        model=settings.llm_model_deepseek,
+        provider="default",
+        model=settings.llm_model,
         purpose="金融结构化推理、抽取、裁判与图谱查询生成",
         use_json_output=True,
         thinking=True,
@@ -81,6 +93,21 @@ class LLMGateway:
     ) -> str:
         raise NotImplementedError
 
+    def stream_complete(
+        self,
+        *,
+        task: LLMTask,
+        messages: list[dict[str, str]],
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+    ):
+        yield self.complete(
+            task=task,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
 
 class HttpLLMGateway(LLMGateway):
     def complete(
@@ -93,6 +120,8 @@ class HttpLLMGateway(LLMGateway):
     ) -> str:
         if not settings.openai_api_key:
             raise RuntimeError("OPENAI_API_KEY is required for LLM calls.")
+        if not settings.llm_model:
+            raise RuntimeError("LLM_MODEL is required for LLM calls.")
 
         profile = select_model_profile(task)
         payload = build_chat_payload(profile, messages, temperature=temperature, max_tokens=max_tokens)
@@ -101,16 +130,54 @@ class HttpLLMGateway(LLMGateway):
             endpoint,
             headers={"Authorization": f"Bearer {settings.openai_api_key}"},
             json=payload,
-            timeout=30,
+            timeout=settings.llm_timeout_seconds,
         )
         response.raise_for_status()
         data = response.json()
         return data["choices"][0]["message"]["content"]
 
+    def stream_complete(
+        self,
+        *,
+        task: LLMTask,
+        messages: list[dict[str, str]],
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+    ):
+        if not settings.openai_api_key:
+            raise RuntimeError("OPENAI_API_KEY is required for LLM calls.")
+        if not settings.llm_model:
+            raise RuntimeError("LLM_MODEL is required for LLM calls.")
+
+        profile = select_model_profile(task)
+        payload = build_chat_payload(profile, messages, temperature=temperature, max_tokens=max_tokens)
+        payload["stream"] = True
+        endpoint = f"{_base_url(profile.provider).rstrip('/')}/chat/completions"
+        with httpx.stream(
+            "POST",
+            endpoint,
+            headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+            json=payload,
+            timeout=settings.llm_timeout_seconds,
+        ) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line:
+                    continue
+                data = line[6:].strip() if line.startswith("data: ") else line.strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                content = delta.get("content")
+                if content:
+                    yield str(content)
+
 
 def _base_url(provider: str) -> str:
     if settings.openai_base_url:
         return settings.openai_base_url
-    if provider == "grok":
-        return "https://api.x.ai/v1"
-    return "https://api.deepseek.com"
+    return "https://api.openai.com/v1"
