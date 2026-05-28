@@ -1,52 +1,838 @@
 [
-  {"id":"gold_001","text":"红杉资本领投星河数据B轮融资，融资金额为3000万元。","entities":[{"name":"红杉资本","type":"Institution"},{"name":"星河数据","type":"Company"},{"name":"B轮融资","type":"Event"}],"relationships":[{"head":"红杉资本","relation":"INVESTED_IN","tail":"B轮融资","attributes":{"role":"领投","amount":"3000万元"}},{"head":"星河数据","relation":"RECEIVED_FUNDING","tail":"B轮融资","attributes":{"amount":"3000万元"}}]},
-  {"id":"gold_002","text":"启明创投参与蓝海智能A轮融资，融资金额为5000万元。","entities":[{"name":"启明创投","type":"Institution"},{"name":"蓝海智能","type":"Company"},{"name":"A轮融资","type":"Event"}],"relationships":[{"head":"启明创投","relation":"INVESTED_IN","tail":"A轮融资","attributes":{"role":"参与投资","amount":"5000万元"}},{"head":"蓝海智能","relation":"RECEIVED_FUNDING","tail":"A轮融资","attributes":{"amount":"5000万元"}}]},
-  {"id":"gold_003","text":"高瓴资本领投云启医疗C轮融资，金额为1亿元。","entities":[{"name":"高瓴资本","type":"Institution"},{"name":"云启医疗","type":"Company"},{"name":"C轮融资","type":"Event"}],"relationships":[{"head":"高瓴资本","relation":"INVESTED_IN","tail":"C轮融资","attributes":{"role":"领投","amount":"1亿元"}},{"head":"云启医疗","relation":"RECEIVED_FUNDING","tail":"C轮融资","attributes":{"amount":"1亿元"}}]},
-  {"id":"gold_004","text":"IDG资本投资智联制造Pre-A轮融资。","entities":[{"name":"IDG资本","type":"Institution"},{"name":"智联制造","type":"Company"},{"name":"Pre-A轮融资","type":"Event"}],"relationships":[{"head":"IDG资本","relation":"INVESTED_IN","tail":"Pre-A轮融资","attributes":{"role":"投资"}},{"head":"智联制造","relation":"RECEIVED_FUNDING","tail":"Pre-A轮融资"}]},
-  {"id":"gold_005","text":"经纬创投跟投绿能科技B+轮融资。","entities":[{"name":"经纬创投","type":"Institution"},{"name":"绿能科技","type":"Company"},{"name":"B+轮融资","type":"Event"}],"relationships":[{"head":"经纬创投","relation":"INVESTED_IN","tail":"B+轮融资","attributes":{"role":"跟投"}},{"head":"绿能科技","relation":"RECEIVED_FUNDING","tail":"B+轮融资"}]},
-  {"id":"gold_006","text":"真格基金参与明德教育天使轮融资。","entities":[{"name":"真格基金","type":"Institution"},{"name":"明德教育","type":"Company"},{"name":"天使轮融资","type":"Event"}],"relationships":[{"head":"真格基金","relation":"INVESTED_IN","tail":"天使轮融资","attributes":{"role":"参与投资"}},{"head":"明德教育","relation":"RECEIVED_FUNDING","tail":"天使轮融资"}]},
-  {"id":"gold_007","text":"顺为资本领投数盾安全A+轮融资。","entities":[{"name":"顺为资本","type":"Institution"},{"name":"数盾安全","type":"Company"},{"name":"A+轮融资","type":"Event"}],"relationships":[{"head":"顺为资本","relation":"INVESTED_IN","tail":"A+轮融资","attributes":{"role":"领投"}},{"head":"数盾安全","relation":"RECEIVED_FUNDING","tail":"A+轮融资"}]},
-  {"id":"gold_008","text":"源码资本投资海纳物流B轮融资。","entities":[{"name":"源码资本","type":"Institution"},{"name":"海纳物流","type":"Company"},{"name":"B轮融资","type":"Event"}],"relationships":[{"head":"源码资本","relation":"INVESTED_IN","tail":"B轮融资","attributes":{"role":"投资"}},{"head":"海纳物流","relation":"RECEIVED_FUNDING","tail":"B轮融资"}]},
-  {"id":"gold_009","text":"君联资本参与远景农业C轮融资。","entities":[{"name":"君联资本","type":"Institution"},{"name":"远景农业","type":"Company"},{"name":"C轮融资","type":"Event"}],"relationships":[{"head":"君联资本","relation":"INVESTED_IN","tail":"C轮融资","attributes":{"role":"参与投资"}},{"head":"远景农业","relation":"RECEIVED_FUNDING","tail":"C轮融资"}]},
-  {"id":"gold_010","text":"深创投领投华芯半导体D轮融资。","entities":[{"name":"深创投","type":"Institution"},{"name":"华芯半导体","type":"Company"},{"name":"D轮融资","type":"Event"}],"relationships":[{"head":"深创投","relation":"INVESTED_IN","tail":"D轮融资","attributes":{"role":"领投"}},{"head":"华芯半导体","relation":"RECEIVED_FUNDING","tail":"D轮融资"}]},
-  {"id":"gold_011","text":"红杉资本持有星河数据12.5%的股份。","entities":[{"name":"红杉资本","type":"Institution"},{"name":"星河数据","type":"Company"}],"relationships":[{"head":"红杉资本","relation":"HOLDS_SHARES","tail":"星河数据","attributes":{"ratio":"12.5%"}}]},
-  {"id":"gold_012","text":"启明创投持有蓝海智能8%的股份。","entities":[{"name":"启明创投","type":"Institution"},{"name":"蓝海智能","type":"Company"}],"relationships":[{"head":"启明创投","relation":"HOLDS_SHARES","tail":"蓝海智能","attributes":{"ratio":"8%"}}]},
-  {"id":"gold_013","text":"高瓴资本持有云启医疗15%的股权。","entities":[{"name":"高瓴资本","type":"Institution"},{"name":"云启医疗","type":"Company"}],"relationships":[{"head":"高瓴资本","relation":"HOLDS_SHARES","tail":"云启医疗","attributes":{"ratio":"15%"}}]},
-  {"id":"gold_014","text":"IDG资本持有智联制造6.2%的股份。","entities":[{"name":"IDG资本","type":"Institution"},{"name":"智联制造","type":"Company"}],"relationships":[{"head":"IDG资本","relation":"HOLDS_SHARES","tail":"智联制造","attributes":{"ratio":"6.2%"}}]},
-  {"id":"gold_015","text":"经纬创投持有绿能科技9.8%的股份。","entities":[{"name":"经纬创投","type":"Institution"},{"name":"绿能科技","type":"Company"}],"relationships":[{"head":"经纬创投","relation":"HOLDS_SHARES","tail":"绿能科技","attributes":{"ratio":"9.8%"}}]},
-  {"id":"gold_016","text":"真格基金持有明德教育5%的股份。","entities":[{"name":"真格基金","type":"Institution"},{"name":"明德教育","type":"Company"}],"relationships":[{"head":"真格基金","relation":"HOLDS_SHARES","tail":"明德教育","attributes":{"ratio":"5%"}}]},
-  {"id":"gold_017","text":"顺为资本持有数盾安全7.5%的股权。","entities":[{"name":"顺为资本","type":"Institution"},{"name":"数盾安全","type":"Company"}],"relationships":[{"head":"顺为资本","relation":"HOLDS_SHARES","tail":"数盾安全","attributes":{"ratio":"7.5%"}}]},
-  {"id":"gold_018","text":"源码资本持有海纳物流11%的股份。","entities":[{"name":"源码资本","type":"Institution"},{"name":"海纳物流","type":"Company"}],"relationships":[{"head":"源码资本","relation":"HOLDS_SHARES","tail":"海纳物流","attributes":{"ratio":"11%"}}]},
-  {"id":"gold_019","text":"君联资本持有远景农业4.5%的股份。","entities":[{"name":"君联资本","type":"Institution"},{"name":"远景农业","type":"Company"}],"relationships":[{"head":"君联资本","relation":"HOLDS_SHARES","tail":"远景农业","attributes":{"ratio":"4.5%"}}]},
-  {"id":"gold_020","text":"深创投持有华芯半导体13%的股份。","entities":[{"name":"深创投","type":"Institution"},{"name":"华芯半导体","type":"Company"}],"relationships":[{"head":"深创投","relation":"HOLDS_SHARES","tail":"华芯半导体","attributes":{"ratio":"13%"}}]},
-  {"id":"gold_021","text":"张三担任星河数据法定代表人。","entities":[{"name":"张三","type":"Person"},{"name":"星河数据","type":"Company"}],"relationships":[{"head":"张三","relation":"LEGAL_REP_OF","tail":"星河数据"}]},
-  {"id":"gold_022","text":"李四担任蓝海智能法定代表人。","entities":[{"name":"李四","type":"Person"},{"name":"蓝海智能","type":"Company"}],"relationships":[{"head":"李四","relation":"LEGAL_REP_OF","tail":"蓝海智能"}]},
-  {"id":"gold_023","text":"王五担任云启医疗董事长。","entities":[{"name":"王五","type":"Person"},{"name":"云启医疗","type":"Company"}],"relationships":[{"head":"王五","relation":"EXECUTIVE_OF","tail":"云启医疗","attributes":{"title":"董事长"}}]},
-  {"id":"gold_024","text":"赵六担任智联制造总经理。","entities":[{"name":"赵六","type":"Person"},{"name":"智联制造","type":"Company"}],"relationships":[{"head":"赵六","relation":"EXECUTIVE_OF","tail":"智联制造","attributes":{"title":"总经理"}}]},
-  {"id":"gold_025","text":"孙七担任绿能科技法定代表人。","entities":[{"name":"孙七","type":"Person"},{"name":"绿能科技","type":"Company"}],"relationships":[{"head":"孙七","relation":"LEGAL_REP_OF","tail":"绿能科技"}]},
-  {"id":"gold_026","text":"周八担任明德教育首席财务官。","entities":[{"name":"周八","type":"Person"},{"name":"明德教育","type":"Company"}],"relationships":[{"head":"周八","relation":"EXECUTIVE_OF","tail":"明德教育","attributes":{"title":"首席财务官"}}]},
-  {"id":"gold_027","text":"吴九担任数盾安全法定代表人。","entities":[{"name":"吴九","type":"Person"},{"name":"数盾安全","type":"Company"}],"relationships":[{"head":"吴九","relation":"LEGAL_REP_OF","tail":"数盾安全"}]},
-  {"id":"gold_028","text":"郑十担任海纳物流运营负责人。","entities":[{"name":"郑十","type":"Person"},{"name":"海纳物流","type":"Company"}],"relationships":[{"head":"郑十","relation":"EXECUTIVE_OF","tail":"海纳物流","attributes":{"title":"运营负责人"}}]},
-  {"id":"gold_029","text":"陈一担任远景农业法定代表人。","entities":[{"name":"陈一","type":"Person"},{"name":"远景农业","type":"Company"}],"relationships":[{"head":"陈一","relation":"LEGAL_REP_OF","tail":"远景农业"}]},
-  {"id":"gold_030","text":"林二担任华芯半导体技术负责人。","entities":[{"name":"林二","type":"Person"},{"name":"华芯半导体","type":"Company"}],"relationships":[{"head":"林二","relation":"EXECUTIVE_OF","tail":"华芯半导体","attributes":{"title":"技术负责人"}}]},
-  {"id":"gold_031","text":"星河数据与蓝海智能达成战略合作。","entities":[{"name":"星河数据","type":"Company"},{"name":"蓝海智能","type":"Company"}],"relationships":[{"head":"星河数据","relation":"COOPERATES_WITH","tail":"蓝海智能","attributes":{"type":"战略合作"}}]},
-  {"id":"gold_032","text":"云启医疗与绿能科技签署联合研发协议。","entities":[{"name":"云启医疗","type":"Company"},{"name":"绿能科技","type":"Company"}],"relationships":[{"head":"云启医疗","relation":"COOPERATES_WITH","tail":"绿能科技","attributes":{"type":"联合研发"}}]},
-  {"id":"gold_033","text":"智联制造与华芯半导体建立供应链合作。","entities":[{"name":"智联制造","type":"Company"},{"name":"华芯半导体","type":"Company"}],"relationships":[{"head":"智联制造","relation":"COOPERATES_WITH","tail":"华芯半导体","attributes":{"type":"供应链合作"}}]},
-  {"id":"gold_034","text":"明德教育与海纳物流合作建设培训平台。","entities":[{"name":"明德教育","type":"Company"},{"name":"海纳物流","type":"Company"}],"relationships":[{"head":"明德教育","relation":"COOPERATES_WITH","tail":"海纳物流","attributes":{"type":"平台合作"}}]},
-  {"id":"gold_035","text":"数盾安全与远景农业共同开发数据安全系统。","entities":[{"name":"数盾安全","type":"Company"},{"name":"远景农业","type":"Company"}],"relationships":[{"head":"数盾安全","relation":"COOPERATES_WITH","tail":"远景农业","attributes":{"type":"技术合作"}}]},
-  {"id":"gold_036","text":"星河云计算是星河数据的控股子公司。","entities":[{"name":"星河云计算","type":"Company"},{"name":"星河数据","type":"Company"}],"relationships":[{"head":"星河云计算","relation":"SUBSIDIARY_OF","tail":"星河数据"}]},
-  {"id":"gold_037","text":"蓝海智能控股蓝海机器人。","entities":[{"name":"蓝海智能","type":"Company"},{"name":"蓝海机器人","type":"Company"}],"relationships":[{"head":"蓝海机器人","relation":"SUBSIDIARY_OF","tail":"蓝海智能"}]},
-  {"id":"gold_038","text":"云启诊断是云启医疗旗下子公司。","entities":[{"name":"云启诊断","type":"Company"},{"name":"云启医疗","type":"Company"}],"relationships":[{"head":"云启诊断","relation":"SUBSIDIARY_OF","tail":"云启医疗"}]},
-  {"id":"gold_039","text":"智联制造控股智联装备。","entities":[{"name":"智联制造","type":"Company"},{"name":"智联装备","type":"Company"}],"relationships":[{"head":"智联装备","relation":"SUBSIDIARY_OF","tail":"智联制造"}]},
-  {"id":"gold_040","text":"绿能储能是绿能科技旗下子公司。","entities":[{"name":"绿能储能","type":"Company"},{"name":"绿能科技","type":"Company"}],"relationships":[{"head":"绿能储能","relation":"SUBSIDIARY_OF","tail":"绿能科技"}]},
-  {"id":"gold_041","text":"星河数据与星河云计算注册地址相同。","entities":[{"name":"星河数据","type":"Company"},{"name":"星河云计算","type":"Company"}],"relationships":[{"head":"星河数据","relation":"SAME_ADDRESS","tail":"星河云计算"}]},
-  {"id":"gold_042","text":"蓝海智能与蓝海机器人共用同一办公地址。","entities":[{"name":"蓝海智能","type":"Company"},{"name":"蓝海机器人","type":"Company"}],"relationships":[{"head":"蓝海智能","relation":"SAME_ADDRESS","tail":"蓝海机器人"}]},
-  {"id":"gold_043","text":"云启医疗与云启诊断的法定代表人均为王五。","entities":[{"name":"云启医疗","type":"Company"},{"name":"云启诊断","type":"Company"},{"name":"王五","type":"Person"}],"relationships":[{"head":"云启医疗","relation":"SAME_LEGAL_REP","tail":"云启诊断","attributes":{"person_name":"王五"}}]},
-  {"id":"gold_044","text":"智联制造与智联装备的法定代表人均为赵六。","entities":[{"name":"智联制造","type":"Company"},{"name":"智联装备","type":"Company"},{"name":"赵六","type":"Person"}],"relationships":[{"head":"智联制造","relation":"SAME_LEGAL_REP","tail":"智联装备","attributes":{"person_name":"赵六"}}]},
-  {"id":"gold_045","text":"绿能科技属于新能源行业。","entities":[{"name":"绿能科技","type":"Company"},{"name":"新能源","type":"Industry"}],"relationships":[{"head":"绿能科技","relation":"BELONGS_TO","tail":"新能源"}]},
-  {"id":"gold_046","text":"华芯半导体属于半导体行业。","entities":[{"name":"华芯半导体","type":"Company"},{"name":"半导体","type":"Industry"}],"relationships":[{"head":"华芯半导体","relation":"BELONGS_TO","tail":"半导体"}]},
-  {"id":"gold_047","text":"数盾安全属于网络安全行业。","entities":[{"name":"数盾安全","type":"Company"},{"name":"网络安全","type":"Industry"}],"relationships":[{"head":"数盾安全","relation":"BELONGS_TO","tail":"网络安全"}]},
-  {"id":"gold_048","text":"海纳物流属于智慧物流行业。","entities":[{"name":"海纳物流","type":"Company"},{"name":"智慧物流","type":"Industry"}],"relationships":[{"head":"海纳物流","relation":"BELONGS_TO","tail":"智慧物流"}]},
-  {"id":"gold_049","text":"远景农业属于现代农业行业。","entities":[{"name":"远景农业","type":"Company"},{"name":"现代农业","type":"Industry"}],"relationships":[{"head":"远景农业","relation":"BELONGS_TO","tail":"现代农业"}]},
-  {"id":"gold_050","text":"明德教育属于教育科技行业。","entities":[{"name":"明德教育","type":"Company"},{"name":"教育科技","type":"Industry"}],"relationships":[{"head":"明德教育","relation":"BELONGS_TO","tail":"教育科技"}]}
+  {
+    "id": "gold_real_001",
+    "text": "魔形智能完成数亿元Pre-A轮融资，达泰资本领投。",
+    "source": "投资界",
+    "url": "https://m.pedaily.cn/news/563452",
+    "date": "2026-05-06",
+    "entities": [
+      {"name": "魔形智能", "type": "Company"},
+      {"name": "达泰资本", "type": "Institution"},
+      {"name": "Pre-A轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "达泰资本", "relation": "INVESTED_IN", "tail": "Pre-A轮融资", "attributes": {"role": "领投", "amount": "数亿元"}},
+      {"head": "魔形智能", "relation": "RECEIVED_FUNDING", "tail": "Pre-A轮融资", "attributes": {"amount": "数亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_002",
+    "text": "九识智能完成近3亿美元B轮融资，鼎晖百孚和蓝湖资本等机构领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202504/548367.shtml",
+    "date": "2025-04-15",
+    "entities": [
+      {"name": "九识智能", "type": "Company"},
+      {"name": "鼎晖百孚", "type": "Institution"},
+      {"name": "蓝湖资本", "type": "Institution"},
+      {"name": "B轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "鼎晖百孚", "relation": "INVESTED_IN", "tail": "B轮融资", "attributes": {"role": "联合领投", "amount": "近3亿美元"}},
+      {"head": "蓝湖资本", "relation": "INVESTED_IN", "tail": "B轮融资", "attributes": {"role": "联合领投", "amount": "近3亿美元"}},
+      {"head": "九识智能", "relation": "RECEIVED_FUNDING", "tail": "B轮融资", "attributes": {"amount": "近3亿美元"}}
+    ]
+  },
+  {
+    "id": "gold_real_003",
+    "text": "OMOWAY完成数千万美元Pre-A和Pre-A+轮融资，红杉中国与星航资本领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202601/559905.shtml",
+    "date": "2026-01-14",
+    "entities": [
+      {"name": "OMOWAY", "type": "Company"},
+      {"name": "红杉中国", "type": "Institution"},
+      {"name": "星航资本", "type": "Institution"},
+      {"name": "Pre-A轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "红杉中国", "relation": "INVESTED_IN", "tail": "Pre-A轮融资", "attributes": {"role": "联合领投", "amount": "数千万美元"}},
+      {"head": "星航资本", "relation": "INVESTED_IN", "tail": "Pre-A轮融资", "attributes": {"role": "联合领投", "amount": "数千万美元"}},
+      {"head": "OMOWAY", "relation": "RECEIVED_FUNDING", "tail": "Pre-A轮融资", "attributes": {"amount": "数千万美元"}}
+    ]
+  },
+  {
+    "id": "gold_real_004",
+    "text": "欧世盛科技完成数千万pre-B轮融资，道彤投资领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202404/531917.shtml",
+    "date": "2024-04-03",
+    "entities": [
+      {"name": "欧世盛科技", "type": "Company"},
+      {"name": "道彤投资", "type": "Institution"},
+      {"name": "pre-B轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "道彤投资", "relation": "INVESTED_IN", "tail": "pre-B轮融资", "attributes": {"role": "领投", "amount": "数千万"}},
+      {"head": "欧世盛科技", "relation": "RECEIVED_FUNDING", "tail": "pre-B轮融资", "attributes": {"amount": "数千万"}}
+    ]
+  },
+  {
+    "id": "gold_real_005",
+    "text": "邑文科技完成超5亿元D轮融资，中金佳泰基金和海通新能源领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202401/529261.shtml",
+    "date": "2024-01-29",
+    "entities": [
+      {"name": "邑文科技", "type": "Company"},
+      {"name": "中金佳泰基金", "type": "Institution"},
+      {"name": "海通新能源", "type": "Institution"},
+      {"name": "D轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "中金佳泰基金", "relation": "INVESTED_IN", "tail": "D轮融资", "attributes": {"role": "联合领投", "amount": "超5亿元"}},
+      {"head": "海通新能源", "relation": "INVESTED_IN", "tail": "D轮融资", "attributes": {"role": "联合领投", "amount": "超5亿元"}},
+      {"head": "邑文科技", "relation": "RECEIVED_FUNDING", "tail": "D轮融资", "attributes": {"amount": "超5亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_006",
+    "text": "长光辰英完成数千万元A轮融资，水木创投领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202406/535020.shtml",
+    "date": "2024-06-06",
+    "entities": [
+      {"name": "长光辰英", "type": "Company"},
+      {"name": "水木创投", "type": "Institution"},
+      {"name": "A轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "水木创投", "relation": "INVESTED_IN", "tail": "A轮融资", "attributes": {"role": "领投", "amount": "数千万元"}},
+      {"head": "长光辰英", "relation": "RECEIVED_FUNDING", "tail": "A轮融资", "attributes": {"amount": "数千万元"}}
+    ]
+  },
+  {
+    "id": "gold_real_007",
+    "text": "脉络能源完成PreA轮融资，华金资本领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202405/533613.shtml",
+    "date": "2024-05-10",
+    "entities": [
+      {"name": "脉络能源", "type": "Company"},
+      {"name": "华金资本", "type": "Institution"},
+      {"name": "PreA轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "华金资本", "relation": "INVESTED_IN", "tail": "PreA轮融资", "attributes": {"role": "领投"}},
+      {"head": "脉络能源", "relation": "RECEIVED_FUNDING", "tail": "PreA轮融资"}
+    ]
+  },
+  {
+    "id": "gold_real_008",
+    "text": "广州文石完成数亿元B轮融资，联想创投和川奇光电等领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202405/534209.shtml",
+    "date": "2024-05-20",
+    "entities": [
+      {"name": "广州文石", "type": "Company"},
+      {"name": "联想创投", "type": "Institution"},
+      {"name": "川奇光电", "type": "Institution"},
+      {"name": "B轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "联想创投", "relation": "INVESTED_IN", "tail": "B轮融资", "attributes": {"role": "联合领投", "amount": "数亿元"}},
+      {"head": "川奇光电", "relation": "INVESTED_IN", "tail": "B轮融资", "attributes": {"role": "联合领投", "amount": "数亿元"}},
+      {"head": "广州文石", "relation": "RECEIVED_FUNDING", "tail": "B轮融资", "attributes": {"amount": "数亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_009",
+    "text": "剂泰医药完成1亿美元C轮融资，中金资本旗下基金领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202406/535785.shtml",
+    "date": "2024-06-21",
+    "entities": [
+      {"name": "剂泰医药", "type": "Company"},
+      {"name": "中金资本", "type": "Institution"},
+      {"name": "C轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "中金资本", "relation": "INVESTED_IN", "tail": "C轮融资", "attributes": {"role": "领投", "amount": "1亿美元"}},
+      {"head": "剂泰医药", "relation": "RECEIVED_FUNDING", "tail": "C轮融资", "attributes": {"amount": "1亿美元"}}
+    ]
+  },
+  {
+    "id": "gold_real_010",
+    "text": "卡尔动力完成6亿元A轮融资，投资方包括鄂尔多斯市国投集团和地平线等。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202406/536135.shtml",
+    "date": "2024-06-28",
+    "entities": [
+      {"name": "卡尔动力", "type": "Company"},
+      {"name": "鄂尔多斯市国投集团", "type": "Institution"},
+      {"name": "地平线", "type": "Institution"},
+      {"name": "A轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "鄂尔多斯市国投集团", "relation": "INVESTED_IN", "tail": "A轮融资", "attributes": {"role": "投资方", "amount": "6亿元"}},
+      {"head": "地平线", "relation": "INVESTED_IN", "tail": "A轮融资", "attributes": {"role": "投资方", "amount": "6亿元"}},
+      {"head": "卡尔动力", "relation": "RECEIVED_FUNDING", "tail": "A轮融资", "attributes": {"amount": "6亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_011",
+    "text": "MCT毫厘智能完成超亿元Pre-A轮融资，弘晖基金领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202404/532759.shtml",
+    "date": "2024-04-19",
+    "entities": [
+      {"name": "MCT毫厘智能", "type": "Company"},
+      {"name": "弘晖基金", "type": "Institution"},
+      {"name": "Pre-A轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "弘晖基金", "relation": "INVESTED_IN", "tail": "Pre-A轮融资", "attributes": {"role": "领投", "amount": "超亿元"}},
+      {"head": "MCT毫厘智能", "relation": "RECEIVED_FUNDING", "tail": "Pre-A轮融资", "attributes": {"amount": "超亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_012",
+    "text": "泛鼎国际完成数千万美元B轮融资，顺为资本领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202404/532520.shtml",
+    "date": "2024-04-16",
+    "entities": [
+      {"name": "泛鼎国际", "type": "Company"},
+      {"name": "顺为资本", "type": "Institution"},
+      {"name": "B轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "顺为资本", "relation": "INVESTED_IN", "tail": "B轮融资", "attributes": {"role": "领投", "amount": "数千万美元"}},
+      {"head": "泛鼎国际", "relation": "RECEIVED_FUNDING", "tail": "B轮融资", "attributes": {"amount": "数千万美元"}}
+    ]
+  },
+  {
+    "id": "gold_real_013",
+    "text": "镓仁半导体完成近亿元Pre-A轮融资，九智资本领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202408/538262.shtml",
+    "date": "2024-08-08",
+    "entities": [
+      {"name": "镓仁半导体", "type": "Company"},
+      {"name": "九智资本", "type": "Institution"},
+      {"name": "杭州银行", "type": "Institution"},
+      {"name": "Pre-A轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "九智资本", "relation": "INVESTED_IN", "tail": "Pre-A轮融资", "attributes": {"role": "领投", "amount": "近亿元"}},
+      {"head": "镓仁半导体", "relation": "RECEIVED_FUNDING", "tail": "Pre-A轮融资", "attributes": {"amount": "近亿元"}},
+      {"head": "镓仁半导体", "relation": "COOPERATES_WITH", "tail": "杭州银行", "attributes": {"type": "战略合作"}}
+    ]
+  },
+  {
+    "id": "gold_real_014",
+    "text": "元鼎智能完成超6000万美元B轮及B+轮融资，B轮由招银国际领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202407/537120.shtml",
+    "date": "2024-07-17",
+    "entities": [
+      {"name": "元鼎智能", "type": "Company"},
+      {"name": "招银国际", "type": "Institution"},
+      {"name": "B轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "招银国际", "relation": "INVESTED_IN", "tail": "B轮融资", "attributes": {"role": "领投", "amount": "超6000万美元"}},
+      {"head": "元鼎智能", "relation": "RECEIVED_FUNDING", "tail": "B轮融资", "attributes": {"amount": "超6000万美元"}}
+    ]
+  },
+  {
+    "id": "gold_real_015",
+    "text": "常州锂源A轮融资引入昆仑工融，昆仑工融增资2.85亿元。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202405/534318.shtml",
+    "date": "2024-05-22",
+    "entities": [
+      {"name": "常州锂源", "type": "Company"},
+      {"name": "昆仑工融", "type": "Institution"},
+      {"name": "A轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "昆仑工融", "relation": "INVESTED_IN", "tail": "A轮融资", "attributes": {"role": "投资方", "amount": "2.85亿元"}},
+      {"head": "常州锂源", "relation": "RECEIVED_FUNDING", "tail": "A轮融资", "attributes": {"amount": "2.85亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_016",
+    "text": "倍丰智能完成数亿元B+轮预融资，中联投资领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202407/537407.shtml",
+    "date": "2024-07-23",
+    "entities": [
+      {"name": "倍丰智能", "type": "Company"},
+      {"name": "中联投资", "type": "Institution"},
+      {"name": "B+轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "中联投资", "relation": "INVESTED_IN", "tail": "B+轮融资", "attributes": {"role": "领投", "amount": "数亿元"}},
+      {"head": "倍丰智能", "relation": "RECEIVED_FUNDING", "tail": "B+轮融资", "attributes": {"amount": "数亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_017",
+    "text": "轻舟智航完成数亿元C轮融资，中关村科学城公司和翠湖基金联合投资。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202406/535686.shtml",
+    "date": "2024-06-20",
+    "entities": [
+      {"name": "轻舟智航", "type": "Company"},
+      {"name": "中关村科学城公司", "type": "Institution"},
+      {"name": "翠湖基金", "type": "Institution"},
+      {"name": "C轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "中关村科学城公司", "relation": "INVESTED_IN", "tail": "C轮融资", "attributes": {"role": "联合投资", "amount": "数亿元"}},
+      {"head": "翠湖基金", "relation": "INVESTED_IN", "tail": "C轮融资", "attributes": {"role": "联合投资", "amount": "数亿元"}},
+      {"head": "轻舟智航", "relation": "RECEIVED_FUNDING", "tail": "C轮融资", "attributes": {"amount": "数亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_018",
+    "text": "毫厘科技完成Pre-A轮融资，得时资本领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202411/542469.shtml",
+    "date": "2024-11-05",
+    "entities": [
+      {"name": "毫厘科技", "type": "Company"},
+      {"name": "得时资本", "type": "Institution"},
+      {"name": "Pre-A轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "得时资本", "relation": "INVESTED_IN", "tail": "Pre-A轮融资", "attributes": {"role": "领投"}},
+      {"head": "毫厘科技", "relation": "RECEIVED_FUNDING", "tail": "Pre-A轮融资"}
+    ]
+  },
+  {
+    "id": "gold_real_019",
+    "text": "九识智能完成1亿美元B1轮融资，鼎晖百孚和蓝湖资本共同领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202411/542732.shtml",
+    "date": "2024-11-11",
+    "entities": [
+      {"name": "九识智能", "type": "Company"},
+      {"name": "鼎晖百孚", "type": "Institution"},
+      {"name": "蓝湖资本", "type": "Institution"},
+      {"name": "B1轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "鼎晖百孚", "relation": "INVESTED_IN", "tail": "B1轮融资", "attributes": {"role": "联合领投", "amount": "1亿美元"}},
+      {"head": "蓝湖资本", "relation": "INVESTED_IN", "tail": "B1轮融资", "attributes": {"role": "联合领投", "amount": "1亿美元"}},
+      {"head": "九识智能", "relation": "RECEIVED_FUNDING", "tail": "B1轮融资", "attributes": {"amount": "1亿美元"}}
+    ]
+  },
+  {
+    "id": "gold_real_020",
+    "text": "御风未来完成超2亿元Pre-B轮融资，中山创投领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202409/540242.shtml",
+    "date": "2024-09-19",
+    "entities": [
+      {"name": "御风未来", "type": "Company"},
+      {"name": "中山创投", "type": "Institution"},
+      {"name": "Pre-B轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "中山创投", "relation": "INVESTED_IN", "tail": "Pre-B轮融资", "attributes": {"role": "领投", "amount": "超2亿元"}},
+      {"head": "御风未来", "relation": "RECEIVED_FUNDING", "tail": "Pre-B轮融资", "attributes": {"amount": "超2亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_021",
+    "text": "修实生物完成近亿元Pre-A轮融资，创景资本领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202410/540963.shtml",
+    "date": "2024-10-08",
+    "entities": [
+      {"name": "修实生物", "type": "Company"},
+      {"name": "创景资本", "type": "Institution"},
+      {"name": "Pre-A轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "创景资本", "relation": "INVESTED_IN", "tail": "Pre-A轮融资", "attributes": {"role": "领投", "amount": "近亿元"}},
+      {"head": "修实生物", "relation": "RECEIVED_FUNDING", "tail": "Pre-A轮融资", "attributes": {"amount": "近亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_022",
+    "text": "星眸生物完成数千万元Pre-A+轮融资，凯风创投领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202403/531377.shtml",
+    "date": "2024-03-20",
+    "entities": [
+      {"name": "星眸生物", "type": "Company"},
+      {"name": "凯风创投", "type": "Institution"},
+      {"name": "Pre-A+轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "凯风创投", "relation": "INVESTED_IN", "tail": "Pre-A+轮融资", "attributes": {"role": "领投", "amount": "数千万元"}},
+      {"head": "星眸生物", "relation": "RECEIVED_FUNDING", "tail": "Pre-A+轮融资", "attributes": {"amount": "数千万元"}}
+    ]
+  },
+  {
+    "id": "gold_real_023",
+    "text": "诺谛智能完成近亿元Pre-A轮融资，武岳峰科创领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202404/532536.shtml",
+    "date": "2024-04-16",
+    "entities": [
+      {"name": "诺谛智能", "type": "Company"},
+      {"name": "武岳峰科创", "type": "Institution"},
+      {"name": "Pre-A轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "武岳峰科创", "relation": "INVESTED_IN", "tail": "Pre-A轮融资", "attributes": {"role": "领投", "amount": "近亿元"}},
+      {"head": "诺谛智能", "relation": "RECEIVED_FUNDING", "tail": "Pre-A轮融资", "attributes": {"amount": "近亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_024",
+    "text": "庖丁科技完成新一轮融资，金山办公与顺为资本联合领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202502/546094.shtml",
+    "date": "2025-02-11",
+    "entities": [
+      {"name": "庖丁科技", "type": "Company"},
+      {"name": "金山办公", "type": "Institution"},
+      {"name": "顺为资本", "type": "Institution"},
+      {"name": "新一轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "金山办公", "relation": "INVESTED_IN", "tail": "新一轮融资", "attributes": {"role": "联合领投"}},
+      {"head": "顺为资本", "relation": "INVESTED_IN", "tail": "新一轮融资", "attributes": {"role": "联合领投"}},
+      {"head": "庖丁科技", "relation": "RECEIVED_FUNDING", "tail": "新一轮融资"}
+    ]
+  },
+  {
+    "id": "gold_real_025",
+    "text": "嘉强智能完成数亿元B轮融资，工业母机产业投资基金领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202502/546674.shtml",
+    "date": "2025-02-28",
+    "entities": [
+      {"name": "嘉强智能", "type": "Company"},
+      {"name": "工业母机产业投资基金", "type": "Institution"},
+      {"name": "B轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "工业母机产业投资基金", "relation": "INVESTED_IN", "tail": "B轮融资", "attributes": {"role": "领投", "amount": "数亿元"}},
+      {"head": "嘉强智能", "relation": "RECEIVED_FUNDING", "tail": "B轮融资", "attributes": {"amount": "数亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_026",
+    "text": "一目科技完成数亿元D轮融资，赛富投资基金领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202501/545403.shtml",
+    "date": "2025-01-13",
+    "entities": [
+      {"name": "一目科技", "type": "Company"},
+      {"name": "赛富投资基金", "type": "Institution"},
+      {"name": "D轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "赛富投资基金", "relation": "INVESTED_IN", "tail": "D轮融资", "attributes": {"role": "领投", "amount": "数亿元"}},
+      {"head": "一目科技", "relation": "RECEIVED_FUNDING", "tail": "D轮融资", "attributes": {"amount": "数亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_027",
+    "text": "朴烯晶完成数亿元B轮融资，国科东方领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202501/545703.shtml",
+    "date": "2025-01-22",
+    "entities": [
+      {"name": "朴烯晶", "type": "Company"},
+      {"name": "国科东方", "type": "Institution"},
+      {"name": "B轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "国科东方", "relation": "INVESTED_IN", "tail": "B轮融资", "attributes": {"role": "领投", "amount": "数亿元"}},
+      {"head": "朴烯晶", "relation": "RECEIVED_FUNDING", "tail": "B轮融资", "attributes": {"amount": "数亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_028",
+    "text": "赛德迪康完成超亿元B轮融资，龙磐投资和上海生物医药基金联合领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202502/546329.shtml",
+    "date": "2025-02-18",
+    "entities": [
+      {"name": "赛德迪康", "type": "Company"},
+      {"name": "龙磐投资", "type": "Institution"},
+      {"name": "上海生物医药基金", "type": "Institution"},
+      {"name": "B轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "龙磐投资", "relation": "INVESTED_IN", "tail": "B轮融资", "attributes": {"role": "联合领投", "amount": "超亿元"}},
+      {"head": "上海生物医药基金", "relation": "INVESTED_IN", "tail": "B轮融资", "attributes": {"role": "联合领投", "amount": "超亿元"}},
+      {"head": "赛德迪康", "relation": "RECEIVED_FUNDING", "tail": "B轮融资", "attributes": {"amount": "超亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_029",
+    "text": "康诺思腾完成C轮超5亿元融资，殷拓集团领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202501/545389.shtml",
+    "date": "2025-01-13",
+    "entities": [
+      {"name": "康诺思腾", "type": "Company"},
+      {"name": "殷拓集团", "type": "Institution"},
+      {"name": "C轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "殷拓集团", "relation": "INVESTED_IN", "tail": "C轮融资", "attributes": {"role": "领投", "amount": "超5亿元"}},
+      {"head": "康诺思腾", "relation": "RECEIVED_FUNDING", "tail": "C轮融资", "attributes": {"amount": "超5亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_030",
+    "text": "艺妙神州完成数亿元E轮融资，京津冀协同发展产业投资基金领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202501/545303.shtml",
+    "date": "2025-01-09",
+    "entities": [
+      {"name": "艺妙神州", "type": "Company"},
+      {"name": "京津冀协同发展产业投资基金", "type": "Institution"},
+      {"name": "E轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "京津冀协同发展产业投资基金", "relation": "INVESTED_IN", "tail": "E轮融资", "attributes": {"role": "领投", "amount": "数亿元"}},
+      {"head": "艺妙神州", "relation": "RECEIVED_FUNDING", "tail": "E轮融资", "attributes": {"amount": "数亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_031",
+    "text": "苏州美创完成超亿元A+轮融资，红杉中国及倚锋资本共同领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202501/545459.shtml",
+    "date": "2025-01-15",
+    "entities": [
+      {"name": "苏州美创", "type": "Company"},
+      {"name": "红杉中国", "type": "Institution"},
+      {"name": "倚锋资本", "type": "Institution"},
+      {"name": "A+轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "红杉中国", "relation": "INVESTED_IN", "tail": "A+轮融资", "attributes": {"role": "联合领投", "amount": "超亿元"}},
+      {"head": "倚锋资本", "relation": "INVESTED_IN", "tail": "A+轮融资", "attributes": {"role": "联合领投", "amount": "超亿元"}},
+      {"head": "苏州美创", "relation": "RECEIVED_FUNDING", "tail": "A+轮融资", "attributes": {"amount": "超亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_032",
+    "text": "瞰瞰智能完成数亿元Pre-B+轮融资，渝创科永基金领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202501/545084.shtml",
+    "date": "2025-01-03",
+    "entities": [
+      {"name": "瞰瞰智能", "type": "Company"},
+      {"name": "渝创科永基金", "type": "Institution"},
+      {"name": "Pre-B+轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "渝创科永基金", "relation": "INVESTED_IN", "tail": "Pre-B+轮融资", "attributes": {"role": "领投", "amount": "数亿元"}},
+      {"head": "瞰瞰智能", "relation": "RECEIVED_FUNDING", "tail": "Pre-B+轮融资", "attributes": {"amount": "数亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_033",
+    "text": "思朗科技完成D轮融资交割，宁德时代旗下溥泉资本领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202503/546714.shtml",
+    "date": "2025-03-02",
+    "entities": [
+      {"name": "思朗科技", "type": "Company"},
+      {"name": "溥泉资本", "type": "Institution"},
+      {"name": "D轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "溥泉资本", "relation": "INVESTED_IN", "tail": "D轮融资", "attributes": {"role": "领投"}},
+      {"head": "思朗科技", "relation": "RECEIVED_FUNDING", "tail": "D轮融资"}
+    ]
+  },
+  {
+    "id": "gold_real_034",
+    "text": "觅投克完成千万元Pre-A轮融资，勤智资本领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202504/548009.shtml",
+    "date": "2025-04-07",
+    "entities": [
+      {"name": "觅投克", "type": "Company"},
+      {"name": "勤智资本", "type": "Institution"},
+      {"name": "Pre-A轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "勤智资本", "relation": "INVESTED_IN", "tail": "Pre-A轮融资", "attributes": {"role": "领投", "amount": "千万元"}},
+      {"head": "觅投克", "relation": "RECEIVED_FUNDING", "tail": "Pre-A轮融资", "attributes": {"amount": "千万元"}}
+    ]
+  },
+  {
+    "id": "gold_real_035",
+    "text": "非夕科技完成C轮亿级美元融资，咏归基金和广发信德联合领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202506/551350.shtml",
+    "date": "2025-06-23",
+    "entities": [
+      {"name": "非夕科技", "type": "Company"},
+      {"name": "咏归基金", "type": "Institution"},
+      {"name": "广发信德", "type": "Institution"},
+      {"name": "C轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "咏归基金", "relation": "INVESTED_IN", "tail": "C轮融资", "attributes": {"role": "联合领投", "amount": "亿级美元"}},
+      {"head": "广发信德", "relation": "INVESTED_IN", "tail": "C轮融资", "attributes": {"role": "联合领投", "amount": "亿级美元"}},
+      {"head": "非夕科技", "relation": "RECEIVED_FUNDING", "tail": "C轮融资", "attributes": {"amount": "亿级美元"}}
+    ]
+  },
+  {
+    "id": "gold_real_036",
+    "text": "柏全生物完成超2亿元A轮融资，龙磐投资领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202506/551155.shtml",
+    "date": "2025-06-18",
+    "entities": [
+      {"name": "柏全生物", "type": "Company"},
+      {"name": "龙磐投资", "type": "Institution"},
+      {"name": "A轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "龙磐投资", "relation": "INVESTED_IN", "tail": "A轮融资", "attributes": {"role": "领投", "amount": "超2亿元"}},
+      {"head": "柏全生物", "relation": "RECEIVED_FUNDING", "tail": "A轮融资", "attributes": {"amount": "超2亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_037",
+    "text": "辐联科技完成7700万美元融资，佳辰资本领投C轮股权融资。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202509/555512.shtml",
+    "date": "2025-09-30",
+    "entities": [
+      {"name": "辐联科技", "type": "Company"},
+      {"name": "佳辰资本", "type": "Institution"},
+      {"name": "C轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "佳辰资本", "relation": "INVESTED_IN", "tail": "C轮融资", "attributes": {"role": "领投", "amount": "约5000万美元股权融资"}},
+      {"head": "辐联科技", "relation": "RECEIVED_FUNDING", "tail": "C轮融资", "attributes": {"amount": "7700万美元"}}
+    ]
+  },
+  {
+    "id": "gold_real_038",
+    "text": "合肥天曜完成数千万元A轮融资，厚雪资本领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202508/554317.shtml",
+    "date": "2025-08-29",
+    "entities": [
+      {"name": "合肥天曜", "type": "Company"},
+      {"name": "厚雪资本", "type": "Institution"},
+      {"name": "A轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "厚雪资本", "relation": "INVESTED_IN", "tail": "A轮融资", "attributes": {"role": "领投", "amount": "数千万元"}},
+      {"head": "合肥天曜", "relation": "RECEIVED_FUNDING", "tail": "A轮融资", "attributes": {"amount": "数千万元"}}
+    ]
+  },
+  {
+    "id": "gold_real_039",
+    "text": "中科紫东太初完成首轮数亿元融资，中科创星领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202505/549750.shtml",
+    "date": "2025-05-16",
+    "entities": [
+      {"name": "中科紫东太初", "type": "Company"},
+      {"name": "中科创星", "type": "Institution"},
+      {"name": "首轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "中科创星", "relation": "INVESTED_IN", "tail": "首轮融资", "attributes": {"role": "领投", "amount": "数亿元"}},
+      {"head": "中科紫东太初", "relation": "RECEIVED_FUNDING", "tail": "首轮融资", "attributes": {"amount": "数亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_040",
+    "text": "铼赛智能完成数千万元Pre-B轮融资，星奇基金和协立投资联合领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202509/555296.shtml",
+    "date": "2025-09-25",
+    "entities": [
+      {"name": "铼赛智能", "type": "Company"},
+      {"name": "星奇基金", "type": "Institution"},
+      {"name": "协立投资", "type": "Institution"},
+      {"name": "Pre-B轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "星奇基金", "relation": "INVESTED_IN", "tail": "Pre-B轮融资", "attributes": {"role": "联合领投", "amount": "数千万元"}},
+      {"head": "协立投资", "relation": "INVESTED_IN", "tail": "Pre-B轮融资", "attributes": {"role": "联合领投", "amount": "数千万元"}},
+      {"head": "铼赛智能", "relation": "RECEIVED_FUNDING", "tail": "Pre-B轮融资", "attributes": {"amount": "数千万元"}}
+    ]
+  },
+  {
+    "id": "gold_real_041",
+    "text": "亦立医药完成超亿元天使+轮融资，怀格资本、清松资本和芯能创投联合领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202509/555297.shtml",
+    "date": "2025-09-25",
+    "entities": [
+      {"name": "亦立医药", "type": "Company"},
+      {"name": "怀格资本", "type": "Institution"},
+      {"name": "清松资本", "type": "Institution"},
+      {"name": "芯能创投", "type": "Institution"},
+      {"name": "天使+轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "怀格资本", "relation": "INVESTED_IN", "tail": "天使+轮融资", "attributes": {"role": "联合领投", "amount": "超亿元"}},
+      {"head": "清松资本", "relation": "INVESTED_IN", "tail": "天使+轮融资", "attributes": {"role": "联合领投", "amount": "超亿元"}},
+      {"head": "芯能创投", "relation": "INVESTED_IN", "tail": "天使+轮融资", "attributes": {"role": "联合领投", "amount": "超亿元"}},
+      {"head": "亦立医药", "relation": "RECEIVED_FUNDING", "tail": "天使+轮融资", "attributes": {"amount": "超亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_042",
+    "text": "跨赴科技完成数千万元Pre-A轮融资，复星锐正领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202509/554623.shtml",
+    "date": "2025-09-08",
+    "entities": [
+      {"name": "跨赴科技", "type": "Company"},
+      {"name": "复星锐正", "type": "Institution"},
+      {"name": "Pre-A轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "复星锐正", "relation": "INVESTED_IN", "tail": "Pre-A轮融资", "attributes": {"role": "领投", "amount": "数千万元"}},
+      {"head": "跨赴科技", "relation": "RECEIVED_FUNDING", "tail": "Pre-A轮融资", "attributes": {"amount": "数千万元"}}
+    ]
+  },
+  {
+    "id": "gold_real_043",
+    "text": "中国聚变能源完成114.92亿元增资，中国核电和浙能电力等参与投资。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202507/552721.shtml",
+    "date": "2025-07-23",
+    "entities": [
+      {"name": "中国聚变能源", "type": "Company"},
+      {"name": "中国核电", "type": "Institution"},
+      {"name": "浙能电力", "type": "Institution"},
+      {"name": "增资融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "中国核电", "relation": "INVESTED_IN", "tail": "增资融资", "attributes": {"role": "投资方", "amount": "114.92亿元"}},
+      {"head": "浙能电力", "relation": "INVESTED_IN", "tail": "增资融资", "attributes": {"role": "投资方", "amount": "114.92亿元"}},
+      {"head": "中国聚变能源", "relation": "RECEIVED_FUNDING", "tail": "增资融资", "attributes": {"amount": "114.92亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_044",
+    "text": "玄源科技完成近亿元Pre-A轮融资，东方富海领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202504/548527.shtml",
+    "date": "2025-04-18",
+    "entities": [
+      {"name": "玄源科技", "type": "Company"},
+      {"name": "东方富海", "type": "Institution"},
+      {"name": "Pre-A轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "东方富海", "relation": "INVESTED_IN", "tail": "Pre-A轮融资", "attributes": {"role": "领投", "amount": "近亿元"}},
+      {"head": "玄源科技", "relation": "RECEIVED_FUNDING", "tail": "Pre-A轮融资", "attributes": {"amount": "近亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_045",
+    "text": "美程科技完成超亿元融资，兴湘资本领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202504/547850.shtml",
+    "date": "2025-04-02",
+    "entities": [
+      {"name": "美程科技", "type": "Company"},
+      {"name": "兴湘资本", "type": "Institution"},
+      {"name": "新一轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "兴湘资本", "relation": "INVESTED_IN", "tail": "新一轮融资", "attributes": {"role": "领投", "amount": "超亿元"}},
+      {"head": "美程科技", "relation": "RECEIVED_FUNDING", "tail": "新一轮融资", "attributes": {"amount": "超亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_046",
+    "text": "无双医疗完成近1.5亿元C轮融资，天士力资本领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202503/547047.shtml",
+    "date": "2025-03-12",
+    "entities": [
+      {"name": "无双医疗", "type": "Company"},
+      {"name": "天士力资本", "type": "Institution"},
+      {"name": "C轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "天士力资本", "relation": "INVESTED_IN", "tail": "C轮融资", "attributes": {"role": "领投", "amount": "近1.5亿元"}},
+      {"head": "无双医疗", "relation": "RECEIVED_FUNDING", "tail": "C轮融资", "attributes": {"amount": "近1.5亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_047",
+    "text": "丹擎医药完成1.5亿元融资，康君资本领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202503/546750.shtml",
+    "date": "2025-03-03",
+    "entities": [
+      {"name": "丹擎医药", "type": "Company"},
+      {"name": "康君资本", "type": "Institution"},
+      {"name": "新一轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "康君资本", "relation": "INVESTED_IN", "tail": "新一轮融资", "attributes": {"role": "领投", "amount": "1.5亿元"}},
+      {"head": "丹擎医药", "relation": "RECEIVED_FUNDING", "tail": "新一轮融资", "attributes": {"amount": "1.5亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_048",
+    "text": "帕母医疗完成近1亿美元C轮融资，启明创投和礼来亚洲共同领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202503/546746.shtml",
+    "date": "2025-03-03",
+    "entities": [
+      {"name": "帕母医疗", "type": "Company"},
+      {"name": "启明创投", "type": "Institution"},
+      {"name": "礼来亚洲", "type": "Institution"},
+      {"name": "C轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "启明创投", "relation": "INVESTED_IN", "tail": "C轮融资", "attributes": {"role": "联合领投", "amount": "近1亿美元"}},
+      {"head": "礼来亚洲", "relation": "INVESTED_IN", "tail": "C轮融资", "attributes": {"role": "联合领投", "amount": "近1亿美元"}},
+      {"head": "帕母医疗", "relation": "RECEIVED_FUNDING", "tail": "C轮融资", "attributes": {"amount": "近1亿美元"}}
+    ]
+  },
+  {
+    "id": "gold_real_049",
+    "text": "图湃医疗完成5亿元E轮融资，君联资本管理的社保基金中关村自主创新专项基金参与投资。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202503/547044.shtml",
+    "date": "2025-03-12",
+    "entities": [
+      {"name": "图湃医疗", "type": "Company"},
+      {"name": "社保基金中关村自主创新专项基金", "type": "Institution"},
+      {"name": "北京机器人产业投资基金", "type": "Institution"},
+      {"name": "E轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "社保基金中关村自主创新专项基金", "relation": "INVESTED_IN", "tail": "E轮融资", "attributes": {"role": "投资方", "amount": "5亿元"}},
+      {"head": "北京机器人产业投资基金", "relation": "INVESTED_IN", "tail": "E轮融资", "attributes": {"role": "投资方", "amount": "5亿元"}},
+      {"head": "图湃医疗", "relation": "RECEIVED_FUNDING", "tail": "E轮融资", "attributes": {"amount": "5亿元"}}
+    ]
+  },
+  {
+    "id": "gold_real_050",
+    "text": "千寻智能完成5.28亿元Pre-A轮融资，Prosperity7 Ventures领投。",
+    "source": "投资界",
+    "url": "https://news.pedaily.cn/202503/547727.shtml",
+    "date": "2025-03-31",
+    "entities": [
+      {"name": "千寻智能", "type": "Company"},
+      {"name": "Prosperity7 Ventures", "type": "Institution"},
+      {"name": "Pre-A轮融资", "type": "Event"}
+    ],
+    "relationships": [
+      {"head": "Prosperity7 Ventures", "relation": "INVESTED_IN", "tail": "Pre-A轮融资", "attributes": {"role": "领投", "amount": "5.28亿元"}},
+      {"head": "千寻智能", "relation": "RECEIVED_FUNDING", "tail": "Pre-A轮融资", "attributes": {"amount": "5.28亿元"}}
+    ]
+  }
 ]

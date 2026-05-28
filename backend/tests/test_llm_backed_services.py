@@ -5,6 +5,7 @@ from app.services.extraction_service import (
 )
 from app.services.graph_rag_service import answer_with_deepseek_graph_context
 from app.services.mock_data import sample_graph
+from app.services.self_refine_service import extract_with_self_refine
 from app.services.text2cypher_service import generate_cypher_with_deepseek
 from tests.test_api_contract import client
 
@@ -41,6 +42,43 @@ class SequenceGateway:
             }
         )
         return self.contents.pop(0)
+
+
+def test_extract_with_self_refine_stops_when_critique_has_no_issues():
+    gateway = SequenceGateway(
+        [
+            '{"entities":[{"name":"星河数据","type":"Company","evidence":"星河数据完成融资"}],'
+            '"relationships":[],"warnings":[]}',
+            '{"issues":[]}',
+        ]
+    )
+
+    payload = extract_with_self_refine("星河数据完成融资。", gateway, max_iterations=2)
+
+    assert payload["entities"][0]["name"] == "星河数据"
+    assert len(gateway.calls) == 2
+    assert gateway.calls[1]["task"] == "extraction"
+
+
+def test_extract_with_self_refine_refines_when_critique_reports_issues():
+    gateway = SequenceGateway(
+        [
+            '{"entities":[{"name":"星河数据","type":"Company","evidence":"星河数据完成融资"}],'
+            '"relationships":[],"warnings":[]}',
+            '{"issues":[{"type":"missing_relation","description":"遗漏红杉资本领投关系"}]}',
+            '{"entities":[{"name":"星河数据","type":"Company","evidence":"星河数据完成融资"},'
+            '{"name":"红杉资本","type":"Institution","evidence":"红杉资本领投"}],'
+            '"relationships":[{"head":"红杉资本","relation":"INVESTED_IN","tail":"星河数据",'
+            '"evidence":"红杉资本领投星河数据融资","confidence":0.91}],"warnings":[]}',
+            '{"issues":[]}',
+        ]
+    )
+
+    payload = extract_with_self_refine("星河数据完成融资，红杉资本领投。", gateway, max_iterations=1)
+
+    assert len(gateway.calls) == 3
+    assert payload["relationships"][0]["relation"] == "INVESTED_IN"
+    assert payload["relationships"][0]["status"] == "confirmed"
 
 
 def test_extract_with_deepseek_parses_structured_json():
@@ -170,10 +208,12 @@ def test_extract_route_applies_self_refine_when_enabled(monkeypatch):
         [
             '{"entities":[{"name":"星河数据","type":"Company","evidence":"星河数据完成融资"}],'
             '"relationships":[],"warnings":["missing_investor"]}',
+            '{"issues":[{"type":"missing_relation","description":"遗漏投资方"}]}',
             '{"entities":[{"name":"星河数据","type":"Company","evidence":"星河数据完成融资"},'
             '{"name":"红杉资本","type":"Institution","evidence":"红杉资本领投"}],'
             '"relationships":[{"head":"红杉资本","relation":"INVESTED_IN","tail":"星河数据",'
             '"evidence":"红杉资本领投星河数据融资","confidence":0.91}],"warnings":[]}',
+            '{"issues":[]}',
         ]
     )
 
@@ -190,7 +230,7 @@ def test_extract_route_applies_self_refine_when_enabled(monkeypatch):
 
     assert response.status_code == 200
     payload = response.json()
-    assert len(gateway.calls) == 2
+    assert len(gateway.calls) == 4
     assert payload["relationships"][0]["relation"] == "INVESTED_IN"
     assert payload["warnings"] == []
 

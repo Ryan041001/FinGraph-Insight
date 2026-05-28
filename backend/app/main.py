@@ -12,12 +12,12 @@ from app.services.extraction_service import (
     extract_mock,
     extract_with_deepseek,
     judge_extraction_with_deepseek,
-    refine_extraction_with_deepseek,
 )
 from app.services.graph_rag_service import answer_with_deepseek_graph_context, answer_with_hybrid_context
 from app.services.graph_query_service import company_profile, paths, subgraph
 from app.services.graph_runtime import import_extraction_payload_runtime, import_graph_runtime
 from app.services.graph_store import graph_store
+from app.services.hybrid_rag_service import answer_with_hybrid_rag
 from app.services.market_service import build_kline_response, get_kline_mock
 from app.services.metrics_service import default_gold_standard_path, evaluate_gold_standard
 from app.services.mock_data import sample_graph
@@ -29,6 +29,7 @@ from app.services.scheduler_service import (
     shutdown_scheduler,
     start_scheduler,
 )
+from app.services.self_refine_service import extract_with_self_refine
 from app.services.stock_analysis_service import build_stock_analysis, build_stock_analysis_with_deepseek
 from app.services.llm_service import HttpLLMGateway
 from app.services.text2cypher_service import answer_text2cypher, generate_cypher_with_deepseek
@@ -94,9 +95,10 @@ def extract(request: ExtractRequest) -> dict:
     if settings.llm_enabled:
         try:
             gateway = HttpLLMGateway()
-            payload = extract_with_deepseek(request.text, gateway)
             if request.options.self_refine:
-                payload = refine_extraction_with_deepseek(request.text, payload, gateway)
+                payload = extract_with_self_refine(request.text, gateway)
+            else:
+                payload = extract_with_deepseek(request.text, gateway)
             if request.options.judge:
                 payload = judge_extraction_with_deepseek(payload, gateway)
             return payload
@@ -149,6 +151,14 @@ def graph_rag(payload: dict) -> dict:
         except Exception:
             pass
     return answer_with_hybrid_context(str(payload.get("question", "")), graph)
+
+
+@app.post("/qa/hybrid-rag")
+def hybrid_rag(payload: dict) -> dict:
+    question = str(payload.get("question", ""))
+    entity = payload.get("entity")
+    gateway = HttpLLMGateway() if settings.llm_enabled else None
+    return answer_with_hybrid_rag(question, entity=entity, gateway=gateway)
 
 
 @app.post("/rag/documents")

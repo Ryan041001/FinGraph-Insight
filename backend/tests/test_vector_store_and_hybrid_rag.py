@@ -1,4 +1,5 @@
 from app.services.graph_rag_service import answer_with_hybrid_context
+from app.services.hybrid_rag_service import answer_with_hybrid_rag
 from app.services.mock_data import sample_graph
 from app.services.vector_store import InMemoryVectorStore, vector_store
 from tests.test_api_contract import client
@@ -55,6 +56,27 @@ def test_hybrid_graph_rag_returns_graph_and_document_context():
     assert any(citation["source"] == "manual_note" for citation in response["citations"])
 
 
+def test_hybrid_rag_service_returns_graph_document_and_retrieval_contract():
+    store = InMemoryVectorStore()
+    store.add_document(
+        doc_id="doc_hybrid_001",
+        title="星河数据说明",
+        text="星河数据通过数据治理订阅服务获得收入。",
+        metadata={"source": "hybrid_test"},
+    )
+
+    response = answer_with_hybrid_rag(
+        "星河数据的收入模式是什么？",
+        vector_store=store,
+        gateway=None,
+    )
+
+    assert response["retrieval"]["mode"] == "hybrid"
+    assert response["supporting_graph"]["nodes"]
+    assert response["document_context"]
+    assert "数据治理订阅服务" in response["answer"]
+
+
 def test_graph_rag_route_uses_indexed_document_context():
     vector_store.clear()
 
@@ -74,6 +96,31 @@ def test_graph_rag_route_uses_indexed_document_context():
 
     assert index_response.status_code == 200
     assert index_response.json()["chunks_indexed"] >= 1
+    assert qa_response.status_code == 200
+    payload = qa_response.json()
+    assert payload["retrieval"]["mode"] == "hybrid"
+    assert payload["document_context"]
+    assert "年度订阅服务" in payload["answer"]
+
+
+def test_hybrid_rag_route_returns_indexed_document_context():
+    vector_store.clear()
+
+    index_response = client.post(
+        "/rag/documents",
+        json={
+            "doc_id": "doc_hybrid_route_001",
+            "title": "路径企业说明",
+            "text": "路径企业通过供应链风控平台和年度订阅服务获得收入。",
+            "metadata": {"source": "hybrid_route_test"},
+        },
+    )
+    qa_response = client.post(
+        "/qa/hybrid-rag",
+        json={"question": "路径企业的收入模式是什么？"},
+    )
+
+    assert index_response.status_code == 200
     assert qa_response.status_code == 200
     payload = qa_response.json()
     assert payload["retrieval"]["mode"] == "hybrid"
