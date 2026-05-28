@@ -1,7 +1,9 @@
+from app.models.api import GraphEdge, GraphNode, GraphPayload
 from app.services.graph_rag_service import answer_with_hybrid_context
 from app.services.hybrid_rag_service import answer_with_hybrid_rag
-from app.services.mock_data import sample_graph
+from app.services.graph_store import InMemoryGraphStore
 from app.services.vector_store import InMemoryVectorStore, vector_store
+from tests.graph_fixtures import funding_graph
 from tests.test_api_contract import client
 
 
@@ -61,7 +63,7 @@ def test_hybrid_graph_rag_returns_graph_and_document_context():
         text="星河数据的商业模式包括数据治理订阅、私有化部署和运维服务。",
         metadata={"source": "manual_note"},
     )
-    graph = sample_graph("星河数据")
+    graph = funding_graph("星河数据")
 
     response = answer_with_hybrid_context(
         "星河数据有哪些融资关系，商业模式是什么？",
@@ -80,6 +82,25 @@ def test_hybrid_graph_rag_returns_graph_and_document_context():
 
 def test_hybrid_rag_service_returns_graph_document_and_retrieval_contract():
     store = InMemoryVectorStore()
+    graph = InMemoryGraphStore()
+    graph.import_graph(
+        GraphPayload(
+            nodes=[
+                GraphNode(id="company_xinghe", label="星河数据", type="Company", properties={"name": "星河数据"}),
+                GraphNode(id="event_xinghe", label="星河数据B轮融资事件", type="Event", properties={"name": "星河数据B轮融资事件"}),
+            ],
+            edges=[
+                GraphEdge(
+                    id="rel_xinghe",
+                    source="company_xinghe",
+                    target="event_xinghe",
+                    type="RECEIVED_FUNDING",
+                    label="获得融资",
+                    provenance={"source_text": "星河数据完成B轮融资。"},
+                )
+            ],
+        )
+    )
     store.add_document(
         doc_id="doc_hybrid_001",
         title="星河数据说明",
@@ -89,6 +110,7 @@ def test_hybrid_rag_service_returns_graph_document_and_retrieval_contract():
 
     response = answer_with_hybrid_rag(
         "星河数据的收入模式是什么？",
+        graph_store=graph,
         vector_store=store,
         gateway=None,
     )

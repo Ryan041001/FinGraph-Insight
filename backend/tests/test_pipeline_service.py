@@ -3,6 +3,18 @@ from app.services.pipeline_service import run_extraction_pipeline
 from app.services.vector_store import InMemoryVectorStore
 
 
+def test_extraction_pipeline_requires_real_extractor():
+    job = run_extraction_pipeline(
+        fetcher=lambda: [{"title": "星河数据融资", "content": "星河数据完成B轮融资。", "source": "unit_test"}],
+        document_vector_store=InMemoryVectorStore(),
+    )
+
+    assert job.status == "failed"
+    assert job.new_documents == 1
+    assert job.new_relationships == 0
+    assert job.failed_items == 1
+
+
 def test_extraction_pipeline_indexes_judges_imports_and_counts_confirmed_items():
     documents = [
         {

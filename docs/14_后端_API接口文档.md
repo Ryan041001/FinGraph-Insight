@@ -15,7 +15,7 @@ http://127.0.0.1:8000
 - 前端默认通过 `VITE_API_BASE_URL` 配置后端地址。
 - 图结构统一使用 `GraphPayload`：`nodes` 和 `edges`。
 - 本文示例优先采用 2026-05-28 端到端测试的真实返回。
-- 本轮自动化 live HTTP 测试在 `GRAPH_BACKEND=memory` 下启动真实 `uvicorn` 进程完成；Neo4j 本机服务不可连接，真实 Neo4j 落库结果需另行复测。
+- 本轮自动化 live HTTP 测试在 `GRAPH_BACKEND=memory` 下启动真实 `uvicorn` 进程完成，并导入真实 FinancialDatasets。Neo4j 本机服务不可连接，真实 Neo4j 落库结果需另行复测。
 
 LLM 配置：
 
@@ -119,7 +119,7 @@ AI HTML 输出约束：
 
 - `neo4j=memory` 表示当前运行态使用内存图存储。
 - 如果设置 `GRAPH_BACKEND=neo4j`，后端会创建 Neo4j driver 并执行连接探活；连通时返回 `neo4j=ok`，不可连时返回 `neo4j=unavailable`。
-- 当前企业画像、子图和路径查询仍从内存图运行态返回；`GRAPH_BACKEND=neo4j` 主要验证写入路径和数据库连通性。
+- `GRAPH_BACKEND=neo4j` 时，企业画像、子图、路径和 Text2Cypher 只读查询会走 Neo4j reader。
 
 ## 3. 数据集导入
 
@@ -131,13 +131,13 @@ AI HTML 输出约束：
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `dataset` | string | 否 | `sample_graph` 或 `financial_datasets`，默认 `sample_graph` |
+| `dataset` | string | 否 | 仅支持 `financial_datasets`，默认 `financial_datasets` |
 
 请求示例：
 
 ```json
 {
-  "dataset": "sample_graph"
+  "dataset": "financial_datasets"
 }
 ```
 
@@ -145,9 +145,9 @@ AI HTML 输出约束：
 
 ```json
 {
-  "import_run_id": "import_sample_graph",
-  "nodes_created": 3,
-  "relationships_created": 2,
+  "import_run_id": "import_financial_datasets",
+  "nodes_created": 56100,
+  "relationships_created": 4772,
   "nodes_skipped": 0,
   "relationships_skipped": 0,
   "status": "success"
@@ -169,7 +169,7 @@ AI HTML 输出约束：
 | `text` | string | 是 | 待抽取文本 |
 | `options.self_refine` | boolean | 否 | 是否启用自修正，默认 true |
 | `options.judge` | boolean | 否 | 是否启用 LLM 裁判，默认 true |
-| `options.mock` | boolean | 否 | 是否使用本地规则抽取，默认 false；演示和自动测试可设为 true |
+| `options.mock` | boolean | 否 | 保留兼容字段；业务运行时传 true 会返回 `400 mock_disabled` |
 
 请求示例：
 
@@ -179,7 +179,7 @@ AI HTML 输出约束：
   "options": {
     "self_refine": false,
     "judge": false,
-    "mock": true
+    "mock": false
   }
 }
 ```
@@ -221,7 +221,7 @@ AI HTML 输出约束：
 }
 ```
 
-说明：`mock=false` 时走 LLM；`mock=true` 时走本地规则抽取，不依赖外部模型，适合演示兜底。
+说明：抽取只走真实 LLM。未配置 LLM 时返回 `502 llm_error`；`mock=true` 返回 `400 mock_disabled`。
 
 ## 5. 抽取结果入库
 
@@ -653,23 +653,13 @@ SSE 事件同 `/qa/graph-rag/stream`：
 }
 ```
 
-LLM 超时降级响应：
+LLM 不可用响应：
 
 ```json
 {
-  "cypher": "MATCH (c:Company)-[r]-(n) RETURN c, r, n LIMIT 50",
-  "safety": {
-    "passed": true,
-    "rules": ["read_only", "path_depth_checked", "limit_added", "llm_fallback"],
-    "reason": "LLM unavailable, returned safe template: upstream timeout"
-  },
-  "table": {
-    "columns": ["company", "relation", "target"],
-    "rows": [["示例科技", "RECEIVED_FUNDING", "B轮融资事件"]]
-  },
-  "graph": {
-    "nodes": [],
-    "edges": []
+  "detail": {
+    "error": "llm_error",
+    "message": "OPENAI_API_KEY is required for LLM calls."
   }
 }
 ```
@@ -746,7 +736,7 @@ LLM 超时降级响应：
 }
 ```
 
-说明：该接口现在使用稳定 mock 抽取链路，避免课堂演示时被批量 LLM 调用阻塞。真实 AKShare 抓取仍会先尝试外部数据源，失败时读取本地快照样例。
+说明：该接口调用真实 AKShare fetcher 和真实 LLM extraction pipeline。外部源或 LLM 不可用时，任务会记录 `failed_items`，不会读取本地快照样例或生成假关系。
 
 ### `GET /jobs/{job_run_id}`
 
@@ -789,7 +779,7 @@ LLM 超时降级响应：
 }
 ```
 
-说明：当前默认评测使用规则 mock 抽取器，不代表最终 LLM 抽取质量。
+说明：接口需要配置真实 predictor；未配置时返回 `503 metrics_unavailable`，避免把规则 baseline 当成最终 LLM 指标。
 
 ## 15. 股票研判
 
@@ -891,14 +881,14 @@ SSE 事件：
 | --- | --- | --- | --- |
 | `market` | string | `A` | 市场 |
 | `period` | string | `daily` | 周期 |
-| `start_date` | string | 近 14 天 mock | 起始日期 |
+| `start_date` | string | 近 180 天 | 起始日期 |
 | `end_date` | string | 当前日期 | 结束日期 |
 | `adjust` | string | `qfq` | 复权方式 |
 
 请求示例：
 
 ```text
-GET /market/kline/600000?market=A&period=daily&start_date=2026-05-01&end_date=2026-05-28&adjust=qfq
+GET /market/kline/600000?market=A&period=daily&start_date=2024-01-01&end_date=2024-01-10&adjust=qfq
 ```
 
 真实响应核心：
@@ -908,37 +898,29 @@ GET /market/kline/600000?market=A&period=daily&start_date=2026-05-01&end_date=20
   "stock_code": "600000",
   "market": "A",
   "display_code": "600000.SH",
-  "company_name": "示例上市公司",
+  "company_name": "600000",
   "period": "daily",
   "adjust": "qfq",
-  "cached": true,
-  "data_source": "mock",
-  "start_date": "2026-05-01",
-  "end_date": "2026-05-28",
+  "cached": false,
+  "data_source": "akshare",
+  "start_date": "2024-01-01",
+  "end_date": "2024-01-10",
   "kline_data": [
     {
-      "date": "2026-05-14",
-      "open": 7.2,
-      "close": 7.25,
-      "high": 7.32,
-      "low": 7.12,
-      "volume": 10000000,
-      "amount": 72500000.0
+      "date": "2024-01-02",
+      "open": 7.23,
+      "close": 7.45,
+      "high": 7.5,
+      "low": 7.18,
+      "volume": 123,
+      "amount": 456.7
     }
   ],
-  "events": [
-    {
-      "date": "2026-05-18",
-      "type": "融资",
-      "label": "图谱事件标注示例",
-      "source_node_id": "event_demo",
-      "source_text": "示例上市公司披露重大融资事件。"
-    }
-  ]
+  "events": []
 }
 ```
 
-说明：当前服务未启用实时行情，`data_source=mock`。
+说明：行情只来自 AKShare。AKShare 不可用时返回 `503 market_data_error`，不返回 mock K 线。
 
 ## 17. 错误格式
 

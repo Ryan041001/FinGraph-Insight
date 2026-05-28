@@ -2,6 +2,7 @@ import pytest
 
 from app.models.api import GraphEdge, GraphNode
 from app.neo4j.connection import Neo4jConnectionConfig, check_neo4j_health, create_neo4j_driver
+from app.neo4j.reader import Neo4jGraphReader, execute_readonly_cypher
 from app.neo4j.writer import build_merge_node_query, build_merge_relationship_query
 
 
@@ -93,3 +94,123 @@ def test_check_neo4j_health_reports_ok_and_unavailable():
     assert check_neo4j_health(HealthyDriver()) == "ok"
     assert check_neo4j_health(FailingDriver()) == "unavailable"
     assert check_neo4j_health(None) == "unavailable"
+
+
+class FakeRecord:
+    def __init__(self, data):
+        self._data = data
+
+    def data(self):
+        return self._data
+
+
+class FakeSession:
+    def __init__(self, records):
+        self.records = records
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def run(self, query, parameters=None):
+        self.calls.append((query, parameters or {}))
+        return [FakeRecord(record) for record in self.records]
+
+
+class FakeDriver:
+    def __init__(self, records):
+        self.session_instance = FakeSession(records)
+
+    def session(self):
+        return self.session_instance
+
+
+def test_neo4j_reader_builds_company_profile_from_real_records():
+    driver = FakeDriver(
+        [
+            {
+                "nodes": [
+                    {
+                        "id": "company_bangsheng",
+                        "labels": ["Company"],
+                        "properties": {"name": "邦盛科技", "industry": "金融科技", "legal_representative": "王明"},
+                    },
+                    {
+                        "id": "event_bangsheng_c",
+                        "labels": ["Event"],
+                        "properties": {"name": "邦盛科技C轮融资事件", "round": "C轮"},
+                    },
+                ],
+                "relationships": [
+                    {
+                        "id": "rel_bangsheng_c",
+                        "source": "company_bangsheng",
+                        "target": "event_bangsheng_c",
+                        "type": "RECEIVED_FUNDING",
+                        "properties": {"label": "获得融资", "source_text": "邦盛科技C轮获得国投创业投资"},
+                    }
+                ],
+            }
+        ]
+    )
+
+    profile = Neo4jGraphReader(driver).company_profile("邦盛科技", depth=2)
+
+    assert profile["company"]["name"] == "邦盛科技"
+    assert profile["company"]["industry"] == "金融科技"
+    assert profile["profile"]["events"] == ["邦盛科技C轮融资事件"]
+    assert profile["graph"]["edges"][0]["type"] == "RECEIVED_FUNDING"
+    query, parameters = driver.session_instance.calls[0]
+    assert "[*0..2]" in query
+    assert parameters["entity"] == "邦盛科技"
+
+
+def test_neo4j_reader_returns_paths_from_real_records():
+    driver = FakeDriver(
+        [
+            {
+                "nodes": [
+                    {"id": "institution_gt", "labels": ["Institution"], "properties": {"name": "国投创业"}},
+                    {"id": "company_bangsheng", "labels": ["Company"], "properties": {"name": "邦盛科技"}},
+                ],
+                "relationships": [
+                    {
+                        "id": "rel_path",
+                        "source": "institution_gt",
+                        "target": "company_bangsheng",
+                        "type": "INVESTED_IN",
+                        "properties": {"label": "投资"},
+                    }
+                ],
+                "length": 1,
+            }
+        ]
+    )
+
+    paths = Neo4jGraphReader(driver).paths("国投创业", "邦盛科技", max_depth=3)
+
+    assert paths[0]["length"] == 1
+    assert paths[0]["nodes"][0]["label"] == "国投创业"
+    query, parameters = driver.session_instance.calls[0]
+    assert "[*1..3]" in query
+    assert parameters == {"source": "国投创业", "target": "邦盛科技"}
+
+
+def test_execute_readonly_cypher_returns_table_and_graph_payload():
+    driver = FakeDriver(
+        [
+            {
+                "company": "邦盛科技",
+                "node": {"id": "company_bangsheng", "labels": ["Company"], "properties": {"name": "邦盛科技"}},
+            }
+        ]
+    )
+
+    result = execute_readonly_cypher(driver, "MATCH (c:Company) RETURN c.name AS company, c AS node LIMIT 10")
+
+    assert result["table"]["columns"] == ["company", "node"]
+    assert result["table"]["rows"][0][0] == "邦盛科技"
+    assert result["graph"]["nodes"][0]["label"] == "邦盛科技"

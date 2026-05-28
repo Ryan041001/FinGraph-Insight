@@ -4,6 +4,10 @@ from collections.abc import Callable
 import pandas as pd
 
 
+class MarketDataError(RuntimeError):
+    pass
+
+
 def build_kline_response(
     stock_code: str,
     market: str = "A",
@@ -23,23 +27,24 @@ def build_kline_response(
             end_date=end_date,
             adjust=adjust,
         )
-        kline_data = normalize_kline_frame(frame)
-        if kline_data:
-            return _kline_payload(
-                stock_code=stock_code,
-                market=market,
-                period=period,
-                start_date=start_date,
-                end_date=end_date,
-                adjust=adjust,
-                kline_data=kline_data,
-                cached=False,
-                data_source="akshare",
-            )
-    except Exception:
-        pass
+    except Exception as exc:
+        raise MarketDataError(str(exc)) from exc
 
-    return get_kline_mock(stock_code, market, period, start_date, end_date, adjust)
+    kline_data = normalize_kline_frame(frame)
+    if not kline_data:
+        raise MarketDataError(f"No market data returned for {stock_code}")
+
+    return _kline_payload(
+        stock_code=stock_code,
+        market=market,
+        period=period,
+        start_date=start_date,
+        end_date=end_date,
+        adjust=adjust,
+        kline_data=kline_data,
+        cached=False,
+        data_source="akshare",
+    )
 
 
 def fetch_akshare_kline(**kwargs) -> pd.DataFrame:
@@ -75,46 +80,6 @@ def normalize_kline_frame(frame: pd.DataFrame) -> list[dict]:
     return points
 
 
-def get_kline_mock(
-    stock_code: str,
-    market: str = "A",
-    period: str = "daily",
-    start_date: str | None = None,
-    end_date: str | None = None,
-    adjust: str = "qfq",
-) -> dict:
-    end = date.today()
-    start = end - timedelta(days=14)
-    prices = [
-        (start + timedelta(days=index), 7.20 + index * 0.03)
-        for index in range(10)
-    ]
-    kline_data = [
-        {
-            "date": day.isoformat(),
-            "open": round(price, 2),
-            "close": round(price + 0.05, 2),
-            "high": round(price + 0.12, 2),
-            "low": round(price - 0.08, 2),
-            "volume": 10000000 + index * 120000,
-            "amount": round((10000000 + index * 120000) * (price + 0.05), 2),
-        }
-        for index, (day, price) in enumerate(prices)
-    ]
-
-    return _kline_payload(
-        stock_code=stock_code,
-        market=market,
-        period=period,
-        start_date=start_date,
-        end_date=end_date,
-        adjust=adjust,
-        kline_data=kline_data,
-        cached=True,
-        data_source="mock",
-    )
-
-
 def _kline_payload(
     stock_code: str,
     market: str,
@@ -130,7 +95,7 @@ def _kline_payload(
         "stock_code": stock_code,
         "market": market,
         "display_code": f"{stock_code}.SH" if market == "A" and stock_code.startswith("6") else stock_code,
-        "company_name": "示例上市公司",
+        "company_name": stock_code,
         "period": period,
         "adjust": adjust,
         "cached": cached,
@@ -138,15 +103,7 @@ def _kline_payload(
         "start_date": start_date,
         "end_date": end_date,
         "kline_data": kline_data,
-        "events": [
-            {
-                "date": kline_data[min(4, len(kline_data) - 1)]["date"] if kline_data else "",
-                "type": "融资",
-                "label": "图谱事件标注示例",
-                "source_node_id": "event_demo",
-                "source_text": "示例上市公司披露重大融资事件。",
-            }
-        ],
+        "events": [],
     }
 
 

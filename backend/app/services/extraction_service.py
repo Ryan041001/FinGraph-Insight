@@ -13,10 +13,6 @@ from app.services.entity_resolution_service import EntityResolver
 entity_resolver = EntityResolver()
 
 
-def extract_mock(text: str) -> dict:
-    return extract_financial_text(text)
-
-
 def extract_financial_text(text: str) -> dict:
     cleaned_text = re.sub(r"\s+", "", text or "")
     company_name, round_name = _extract_company_and_round(cleaned_text)

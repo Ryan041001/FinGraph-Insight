@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     llm_model: str = Field(default="", alias="LLM_MODEL")
     llm_timeout_seconds: int = Field(default=120, alias="LLM_TIMEOUT_SECONDS")
     graph_backend: str = Field(default="memory", alias="GRAPH_BACKEND")
-    market_live_enabled: bool = Field(default=False, alias="MARKET_LIVE_ENABLED")
+    market_live_enabled: bool = Field(default=True, alias="MARKET_LIVE_ENABLED")
     scheduler_enabled: bool = Field(default=True, alias="SCHEDULER_ENABLED")
     akshare_update_cron: str = Field(default="0 */6 * * *", alias="AKSHARE_UPDATE_CRON")
     text2cypher_max_limit: int = Field(default=100, alias="TEXT2CYPHER_MAX_LIMIT")

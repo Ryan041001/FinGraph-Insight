@@ -1,3 +1,5 @@
+from app.models.api import GraphEdge, GraphNode, GraphPayload
+from app.services.graph_store import graph_store
 from app.services.stock_analysis_service import build_stock_analysis, build_stock_analysis_with_llm
 
 
@@ -12,6 +14,26 @@ class FakeAnalysisGateway:
 
 
 def test_build_stock_analysis_binds_graph_evidence_and_disclaimer():
+    graph_store.clear()
+    graph_store.import_graph(
+        GraphPayload(
+            nodes=[
+                GraphNode(id="company_spdb", label="浦发银行", type="Company", properties={"name": "浦发银行", "industry": "银行"}),
+                GraphNode(id="event_spdb", label="浦发银行年度报告事件", type="Event", properties={"name": "浦发银行年度报告事件"}),
+            ],
+            edges=[
+                GraphEdge(
+                    id="rel_spdb_event",
+                    source="company_spdb",
+                    target="event_spdb",
+                    type="MENTIONED_IN",
+                    label="提及",
+                    provenance={"source_text": "浦发银行披露年度报告。"},
+                )
+            ],
+        )
+    )
+
     response = build_stock_analysis(
         {
             "stock_code": "600000",

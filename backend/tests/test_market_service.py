@@ -1,6 +1,7 @@
 import pandas as pd
+import pytest
 
-from app.services.market_service import build_kline_response, normalize_kline_frame
+from app.services.market_service import MarketDataError, build_kline_response, normalize_kline_frame
 
 
 def test_normalize_kline_frame_maps_akshare_columns():
@@ -53,4 +54,22 @@ def test_build_kline_response_uses_fetcher_data():
 
     assert response["data_source"] == "akshare"
     assert response["cached"] is False
+    assert response["company_name"] == "600000"
     assert response["kline_data"][0]["date"] == "2024-03-15"
+    assert response["events"] == []
+
+
+def test_build_kline_response_raises_instead_of_returning_mock_when_fetcher_fails():
+    def failing_fetcher(**kwargs):
+        raise RuntimeError("akshare unavailable")
+
+    with pytest.raises(MarketDataError, match="akshare unavailable"):
+        build_kline_response("600000", fetcher=failing_fetcher)
+
+
+def test_build_kline_response_raises_when_fetcher_returns_no_rows():
+    def empty_fetcher(**kwargs):
+        return pd.DataFrame([])
+
+    with pytest.raises(MarketDataError, match="No market data"):
+        build_kline_response("600000", fetcher=empty_fetcher)

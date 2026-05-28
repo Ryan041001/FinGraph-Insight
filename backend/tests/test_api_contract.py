@@ -5,8 +5,9 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.models.api import JobRun
 from app.models.api import GraphPayload
+from app.models.api import GraphEdge, GraphNode
 from app.services.graph_store import ImportStats
-from app.services.mock_data import sample_graph
+from app.services.graph_store import graph_store
 
 
 client = TestClient(app)
@@ -77,32 +78,79 @@ def test_health_checks_real_neo4j_connectivity_when_backend_enabled(monkeypatch)
     assert response.json()["neo4j"] == "ok"
 
 
+def test_company_profile_uses_neo4j_reader_when_backend_enabled(monkeypatch):
+    monkeypatch.setattr("app.services.graph_query_service.settings.graph_backend", "neo4j")
+    monkeypatch.setattr("app.services.graph_query_service.create_neo4j_driver", lambda: "driver")
+
+    class FakeReader:
+        def __init__(self, driver):
+            self.driver = driver
+
+        def company_profile(self, name, depth=2):
+            return {
+                "company": {"id": "company_bangsheng", "name": name, "industry": "金融科技", "legal_representative": "王明"},
+                "profile": {"events": ["邦盛科技C轮融资事件"], "investors": [], "shareholders": [], "hidden_relations": [], "risk_flags": [], "depth": depth},
+                "graph": {"nodes": [{"id": "company_bangsheng", "label": name, "type": "Company", "properties": {}, "risk_level": "normal"}], "edges": []},
+            }
+
+    monkeypatch.setattr("app.services.graph_query_service.Neo4jGraphReader", FakeReader)
+
+    response = client.get("/graph/company/邦盛科技")
+
+    assert response.status_code == 200
+    assert response.json()["company"]["name"] == "邦盛科技"
+    assert response.json()["profile"]["events"] == ["邦盛科技C轮融资事件"]
+
+
 def test_company_profile_returns_graph_contract():
-    response = client.get("/graph/company/示例科技")
+    graph_store.clear()
+
+    response = client.get("/graph/company/不存在的真实企业")
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["company"]["name"] == "示例科技"
+    assert payload["company"]["name"] == "不存在的真实企业"
     assert "nodes" in payload["graph"]
     assert "edges" in payload["graph"]
+    assert payload["graph"]["nodes"] == []
+    assert payload["graph"]["edges"] == []
+    assert payload["profile"]["events"] == []
 
 
-def test_company_profile_evidence_uses_requested_company_without_default_leaks():
+def test_company_profile_has_no_sample_evidence_when_company_is_missing():
+    graph_store.clear()
+
     response = client.get("/graph/company/当前企业")
 
     assert response.status_code == 200
     payload = response.json()
-    evidence_texts = [
-        edge["provenance"]["source_text"]
-        for edge in payload["graph"]["edges"]
-    ]
+    rendered_payload = str(payload)
 
-    assert evidence_texts
-    assert any("当前企业" in text for text in evidence_texts)
-    assert all("示例科技" not in text for text in evidence_texts)
+    assert payload["graph"]["edges"] == []
+    assert payload["graph"]["nodes"] == []
+    assert all(word not in rendered_payload for word in ["示例", "样例", "演示", "doc_demo"])
 
 
 def test_graph_rag_returns_product_safe_answer_for_requested_company(monkeypatch):
+    graph_store.clear()
+    graph_store.import_graph(
+        GraphPayload(
+            nodes=[
+                GraphNode(id="company_current", label="当前企业", type="Company", properties={"name": "当前企业"}),
+                GraphNode(id="event_current", label="当前企业A轮融资事件", type="Event", properties={"name": "当前企业A轮融资事件"}),
+            ],
+            edges=[
+                GraphEdge(
+                    id="rel_current",
+                    source="company_current",
+                    target="event_current",
+                    type="RECEIVED_FUNDING",
+                    label="获得融资",
+                    provenance={"source_text": "当前企业完成A轮融资。"},
+                )
+            ],
+        )
+    )
     monkeypatch.setattr(
         "app.main.HttpLLMGateway",
         lambda: FakeGateway('{"answer":"当前企业存在融资和投资方关联关系。"}'),
@@ -153,7 +201,7 @@ def test_manual_update_job_returns_log_contract(monkeypatch):
         jobs[job.job_run_id] = job
         return job
 
-    monkeypatch.setattr("app.main.run_akshare_update_mock", fake_job)
+    monkeypatch.setattr("app.main.run_akshare_update", fake_job)
     monkeypatch.setattr("app.main.list_job_runs", lambda: list(jobs.values()))
     monkeypatch.setattr("app.main.get_job_run", lambda job_run_id: jobs.get(job_run_id))
 
@@ -175,16 +223,50 @@ def test_manual_update_job_returns_log_contract(monkeypatch):
     assert detail_response.json()["job_run_id"] == payload["job_run_id"]
 
 
-def test_kline_endpoint_returns_market_contract():
+def test_kline_endpoint_returns_market_contract(monkeypatch):
+    monkeypatch.setattr("app.main.settings.market_live_enabled", True)
+
+    def fake_kline(**kwargs):
+        return {
+            "stock_code": kwargs["stock_code"],
+            "market": kwargs["market"],
+            "display_code": "600000.SH",
+            "company_name": "浦发银行",
+            "period": kwargs["period"],
+            "adjust": kwargs["adjust"],
+            "cached": False,
+            "data_source": "akshare",
+            "start_date": kwargs["start_date"],
+            "end_date": kwargs["end_date"],
+            "kline_data": [{"date": "2024-03-15", "open": 7.23, "close": 7.45, "high": 7.5, "low": 7.18, "volume": 123, "amount": 456.7}],
+            "events": [],
+        }
+
+    monkeypatch.setattr("app.main.build_kline_response", fake_kline)
+
     response = client.get("/market/kline/600000?market=A&period=daily")
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["stock_code"] == "600000"
     assert payload["market"] == "A"
-    assert payload["data_source"] == "mock"
+    assert payload["data_source"] == "akshare"
     assert payload["kline_data"][0]["date"]
-    assert "events" in payload
+    assert payload["events"] == []
+
+
+def test_kline_endpoint_reports_market_error_without_mock_fallback(monkeypatch):
+    monkeypatch.setattr("app.main.settings.market_live_enabled", True)
+
+    def failing_kline(**kwargs):
+        raise RuntimeError("akshare unavailable")
+
+    monkeypatch.setattr("app.main.build_kline_response", failing_kline)
+
+    response = client.get("/market/kline/600000?market=A&period=daily")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["error"] == "market_data_error"
 
 
 def test_extract_uses_requested_text_entities_without_default_company_leak(monkeypatch):
@@ -214,7 +296,7 @@ def test_extract_uses_requested_text_entities_without_default_company_leak(monke
     assert "示例科技" not in rendered_payload
 
 
-def test_extract_route_supports_explicit_mock_mode_without_llm(monkeypatch):
+def test_extract_route_rejects_mock_mode_for_business_runtime(monkeypatch):
     monkeypatch.setattr("app.main.HttpLLMGateway", lambda: FailingGateway())
 
     response = client.post(
@@ -225,13 +307,8 @@ def test_extract_route_supports_explicit_mock_mode_without_llm(monkeypatch):
         },
     )
 
-    assert response.status_code == 200
-    payload = response.json()
-    rendered_payload = str(payload)
-
-    assert "端测云链科技有限公司" in rendered_payload
-    assert "端测高榕资本" in rendered_payload
-    assert payload["relationships"]
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "mock_disabled"
 
 
 def test_graph_import_persists_confirmed_extraction_for_company_profile(monkeypatch):
@@ -301,17 +378,39 @@ def test_graph_import_route_uses_graph_runtime(monkeypatch):
     assert response.json()["relationships_skipped"] == 4
 
 
-def test_text2cypher_route_falls_back_to_safe_template_when_llm_times_out(monkeypatch):
-    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: FailingGateway())
+def test_text2cypher_route_executes_readonly_cypher_when_neo4j_enabled(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr("app.main.settings.graph_backend", "neo4j")
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: FakeGateway('{"cypher":"MATCH (c:Company) RETURN c.name AS company"}'))
+    monkeypatch.setattr("app.main.create_neo4j_driver", lambda: "driver")
+
+    def fake_execute(driver, cypher):
+        captured["driver"] = driver
+        captured["cypher"] = cypher
+        return {
+            "table": {"columns": ["company"], "rows": [["邦盛科技"]]},
+            "graph": {"nodes": [], "edges": []},
+        }
+
+    monkeypatch.setattr("app.main.execute_readonly_cypher", fake_execute)
 
     response = client.post("/qa/text2cypher", json={"question": "查询所有公司"})
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["safety"]["passed"] is True
-    assert "llm_fallback" in payload["safety"]["rules"]
-    assert payload["cypher"].startswith("MATCH")
-    assert payload["graph"]["nodes"]
+    assert payload["table"]["rows"] == [["邦盛科技"]]
+    assert captured["driver"] == "driver"
+    assert captured["cypher"] == "MATCH (c:Company) RETURN c.name AS company LIMIT 50"
+
+
+def test_text2cypher_route_falls_back_to_safe_template_when_llm_times_out(monkeypatch):
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: FailingGateway())
+
+    response = client.post("/qa/text2cypher", json={"question": "查询所有公司"})
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["error"] == "llm_error"
 
 
 def test_latest_stock_analysis_returns_cached_or_local_analysis_without_llm(monkeypatch):
@@ -364,13 +463,29 @@ def test_stock_analysis_refresh_news_reports_news_fallback(monkeypatch):
     assert any("新闻补充暂不可用" in item for item in missing_data)
 
 
-def test_manual_akshare_run_uses_mock_extraction_for_stable_demo(monkeypatch):
-    monkeypatch.setattr("app.services.scheduler_service.HttpLLMGateway", lambda: FailingGateway())
+def test_manual_akshare_run_uses_real_update_path(monkeypatch):
+    called = {}
+
+    def fake_update():
+        called["used"] = True
+        return JobRun(
+            job_run_id="job_real_update",
+            status="success",
+            started_at="2026-05-28T00:00:00",
+            finished_at="2026-05-28T00:00:01",
+            new_documents=1,
+            new_entities=0,
+            new_relationships=0,
+            failed_items=0,
+        )
+
+    monkeypatch.setattr("app.main.run_akshare_update", fake_update)
 
     response = client.post("/jobs/akshare/run")
 
     assert response.status_code == 200
     payload = response.json()
+    assert called["used"] is True
     assert payload["status"] == "success"
     assert payload["new_documents"] >= 1
     assert payload["failed_items"] == 0
@@ -472,9 +587,36 @@ def test_stock_analysis_stream_returns_sse_events(monkeypatch):
     assert "event: done" in body
 
 
-def test_dataset_import_is_idempotent_and_populates_queryable_graph():
-    first_response = client.post("/datasets/import", json={"dataset": "sample_graph"})
-    second_response = client.post("/datasets/import", json={"dataset": "sample_graph"})
+def test_metrics_extraction_requires_real_predictor_configuration():
+    response = client.get("/metrics/extraction")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["error"] == "metrics_unavailable"
+
+
+def test_dataset_import_is_idempotent_and_populates_queryable_graph(monkeypatch):
+    graph_store.clear()
+    real_graph = GraphPayload(
+        nodes=[
+            GraphNode(id="company_real_import", label="真实导入企业", type="Company", properties={"name": "真实导入企业"}),
+            GraphNode(id="event_real_import", label="真实导入企业A轮融资事件", type="Event", properties={"name": "真实导入企业A轮融资事件"}),
+        ],
+        edges=[
+            GraphEdge(
+                id="rel_real_import",
+                source="company_real_import",
+                target="event_real_import",
+                type="RECEIVED_FUNDING",
+                label="获得融资",
+                provenance={"source": "真实投资事件表", "source_text": "真实导入企业完成A轮融资。"},
+            )
+        ],
+    )
+
+    monkeypatch.setattr("app.main.load_financial_dataset_directory", lambda path: real_graph)
+
+    first_response = client.post("/datasets/import", json={"dataset": "financial_datasets"})
+    second_response = client.post("/datasets/import", json={"dataset": "financial_datasets"})
 
     assert first_response.status_code == 200
     assert second_response.status_code == 200
@@ -486,13 +628,20 @@ def test_dataset_import_is_idempotent_and_populates_queryable_graph():
     assert second["nodes_created"] == 0
     assert second["relationships_created"] == 0
 
-    profile_response = client.get("/graph/company/示例科技")
+    profile_response = client.get("/graph/company/真实导入企业")
     assert profile_response.status_code == 200
     assert profile_response.json()["graph"]["nodes"]
 
 
 def test_financial_dataset_import_uses_dataset_loader(monkeypatch):
-    monkeypatch.setattr("app.main.load_financial_dataset_directory", lambda path: sample_graph("导入企业"))
+    graph_store.clear()
+    monkeypatch.setattr(
+        "app.main.load_financial_dataset_directory",
+        lambda path: GraphPayload(
+            nodes=[GraphNode(id="company_imported", label="导入企业", type="Company", properties={"name": "导入企业"})],
+            edges=[],
+        ),
+    )
 
     response = client.post("/datasets/import", json={"dataset": "financial_datasets"})
 
@@ -508,7 +657,10 @@ def test_financial_dataset_import_uses_project_root_data_path(monkeypatch):
 
     def fake_loader(path):
         seen_paths.append(path)
-        return sample_graph("根目录数据企业")
+        return GraphPayload(
+            nodes=[GraphNode(id="company_root_imported", label="根目录数据企业", type="Company", properties={"name": "根目录数据企业"})],
+            edges=[],
+        )
 
     monkeypatch.setattr("app.main.load_financial_dataset_directory", fake_loader)
 

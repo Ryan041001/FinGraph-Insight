@@ -4,9 +4,9 @@ from app.services.extraction_service import (
     refine_extraction_with_llm,
 )
 from app.services.graph_rag_service import answer_with_llm_graph_context
-from app.services.mock_data import sample_graph
 from app.services.self_refine_service import extract_with_self_refine
 from app.services.text2cypher_service import generate_cypher_with_llm
+from tests.graph_fixtures import funding_graph
 from tests.test_api_contract import client
 
 
@@ -246,7 +246,7 @@ def test_text2cypher_route_uses_configured_llm_when_enabled(monkeypatch):
 
 def test_answer_with_llm_graph_context_preserves_graph_and_citations():
     gateway = FakeGateway('{"answer":"根据图谱，星河数据获得B轮融资。"}')
-    graph = sample_graph("星河数据")
+    graph = funding_graph("星河数据")
 
     response = answer_with_llm_graph_context("星河数据融资情况？", graph, gateway)
 

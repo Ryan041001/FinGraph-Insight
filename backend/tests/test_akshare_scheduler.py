@@ -1,6 +1,7 @@
 import pandas as pd
+import pytest
 
-from app.data.akshare_fetcher import normalize_news_frame
+from app.data.akshare_fetcher import AkshareFetchError, fetch_akshare_news, normalize_news_frame
 from app.models.api import JobRun
 from app.services.graph_runtime import import_extraction_payload_runtime
 from app.services.graph_store import ImportStats
@@ -29,6 +30,18 @@ def test_normalize_news_frame_maps_common_akshare_columns():
             "pub_date": "2024-03-15",
         }
     ]
+
+
+def test_fetch_akshare_news_raises_without_local_snapshot_when_source_fails(monkeypatch):
+    class FakeAkshare:
+        @staticmethod
+        def stock_news_em(symbol):
+            raise RuntimeError("network unavailable")
+
+    monkeypatch.setitem(__import__("sys").modules, "akshare", FakeAkshare)
+
+    with pytest.raises(AkshareFetchError, match="network unavailable"):
+        fetch_akshare_news("600000")
 
 
 def test_run_akshare_update_records_pipeline_counts_from_fetcher():

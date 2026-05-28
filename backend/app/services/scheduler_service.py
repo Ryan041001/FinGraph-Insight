@@ -6,7 +6,7 @@ from apscheduler.triggers.cron import CronTrigger
 from app.config import settings
 from app.models.api import JobRun
 from app.data.akshare_fetcher import fetch_akshare_news
-from app.services.extraction_service import extract_mock, extract_with_llm, judge_extraction_with_llm
+from app.services.extraction_service import extract_with_llm, judge_extraction_with_llm
 from app.services.graph_runtime import import_extraction_payload_runtime
 from app.services.graph_store import ImportStats
 from app.services.llm_service import HttpLLMGateway
@@ -30,13 +30,6 @@ def run_akshare_update(
     )
     _job_runs[job.job_run_id] = job
     return job
-
-
-def run_akshare_update_mock() -> JobRun:
-    return run_akshare_update(
-        extractor=extract_mock,
-        judge=lambda payload: payload,
-    )
 
 
 def list_job_runs() -> list[JobRun]:

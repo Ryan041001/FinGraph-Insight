@@ -30,7 +30,7 @@ GET /health
 
 说明：
 
-- `neo4j=memory`：当前后端使用内存图运行态，适合本地开发、自动化测试和课程演示兜底。
+- `neo4j=memory`：当前后端使用内存图运行态，仅适合本地开发和自动化测试。
 - `neo4j=ok`：当 `GRAPH_BACKEND=neo4j` 时，后端已真实探活 Neo4j 连接。
 - `neo4j=unavailable`：当 `GRAPH_BACKEND=neo4j` 时，Neo4j 不可连接。
 
@@ -67,7 +67,7 @@ POST /extract
 }
 ```
 
-说明：`options.mock=true` 时使用本地规则抽取，不依赖外部 LLM，适合演示和自动化集成测试。
+说明：业务运行时不允许 mock 抽取。`options.mock=true` 会返回 `400 mock_disabled`；未配置 LLM 时返回 `502 llm_error`。
 
 ### 2.3 抽取结果入库
 
@@ -80,7 +80,7 @@ POST /graph/import
 - 将前端确认后的抽取结果写入图谱运行态。
 - 入库前再次做实体消歧、关系 ID 计算和置信度校验。
 - 当前所有写入都会进入内存图，保证查询接口即时可用。
-- 当 `GRAPH_BACKEND=neo4j` 时，同时写穿 Neo4j；本机没有 Neo4j 时只能验证到内存图链路。
+- 当 `GRAPH_BACKEND=neo4j` 时，同时写穿 Neo4j，查询接口也优先走 Neo4j reader。
 
 ### 2.4 企业画像
 
@@ -169,7 +169,7 @@ POST /qa/text2cypher
 }
 ```
 
-当前限制：后端已实现只读安全校验和 LLM 不可用时的安全模板降级，但尚未执行真实 Neo4j 查询。
+说明：后端已实现只读安全校验；当 `GRAPH_BACKEND=neo4j` 时执行真实 Neo4j 只读查询。LLM 或 Neo4j 不可用时返回错误，不返回模板假结果。
 
 ### 2.8 定时任务状态
 
@@ -246,7 +246,7 @@ Text2Cypher 是高风险功能，必须限制。
 6. 检查路径深度。
 7. 校验通过后才允许进入执行层。
 
-当前实现已完成 1 到 6 和安全模板返回；真实 Neo4j 执行层仍待补齐。
+当前实现已完成 1 到 7；只读查询仅在安全校验通过后执行。
 
 ### 3.4 失败返回
 
@@ -273,7 +273,7 @@ OPENAI_BASE_URL=
 LLM_MODEL=
 LLM_TIMEOUT_SECONDS=120
 GRAPH_BACKEND=memory
-MARKET_LIVE_ENABLED=false
+MARKET_LIVE_ENABLED=true
 SCHEDULER_ENABLED=true
 AKSHARE_UPDATE_CRON=0 */6 * * *
 ```
@@ -298,4 +298,4 @@ AKSHARE_UPDATE_CRON=0 */6 * * *
 - `/graph/import` 重复调用不产生重复关系。
 - `/qa/text2cypher` 拒绝 `DELETE`、`SET`、`MERGE`。
 - `/jobs/akshare/run` 能手动触发更新并返回日志。
-- `/market/kline/{stock_code}` 能返回标准 K 线结构和事件标注数组。
+- `/market/kline/{stock_code}` 成功时返回 `data_source=akshare`；外部源不可用时返回 `market_data_error`，不返回 mock K 线。

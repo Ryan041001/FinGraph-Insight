@@ -14,8 +14,8 @@ from app.config import settings
 from app.data.financial_dataset_loader import load_financial_dataset_directory
 from app.models.api import DocumentIndexRequest, ExtractRequest, HealthResponse, Text2CypherRequest, Text2CypherSafety
 from app.neo4j.connection import check_neo4j_health, create_neo4j_driver
+from app.neo4j.reader import execute_readonly_cypher
 from app.services.extraction_service import (
-    extract_mock,
     extract_with_llm,
     judge_extraction_with_llm,
 )
@@ -25,13 +25,12 @@ from app.services.graph_query_service import company_profile, paths, subgraph
 from app.services.graph_runtime import import_extraction_payload_runtime, import_graph_runtime
 from app.services.graph_store import graph_store
 from app.services.hybrid_rag_service import answer_with_hybrid_rag
-from app.services.market_service import build_kline_response, get_kline_mock
+from app.services.market_service import MarketDataError, build_kline_response
 from app.services.metrics_service import default_gold_standard_path, evaluate_gold_standard
-from app.services.mock_data import sample_graph
 from app.services.scheduler_service import (
     get_job_run,
     list_job_runs,
-    run_akshare_update_mock,
+    run_akshare_update,
     scheduler_status,
     shutdown_scheduler,
     start_scheduler,
@@ -102,14 +101,14 @@ def _graph_health_status() -> str:
 
 @app.post("/datasets/import")
 def import_dataset(payload: dict | None = None) -> dict:
-    dataset = (payload or {}).get("dataset", "sample_graph")
-    if dataset not in {"sample_graph", "financial_datasets"}:
+    dataset = (payload or {}).get("dataset", "financial_datasets")
+    if dataset != "financial_datasets":
         raise HTTPException(status_code=400, detail={"error": "invalid_input", "message": f"unsupported dataset: {dataset}"})
 
     graph = _load_dataset_graph(dataset)
     stats = import_graph_runtime(graph)
     return {
-        "import_run_id": "import_sample_graph",
+        "import_run_id": "import_financial_datasets",
         "nodes_created": stats.nodes_created,
         "relationships_created": stats.relationships_created,
         "nodes_skipped": stats.nodes_matched,
@@ -131,13 +130,19 @@ def _load_dataset_graph(dataset: str):
             graph = load_financial_dataset_directory(dataset_path)
             if graph.nodes:
                 return graph
-    return sample_graph("示例科技")
+    raise HTTPException(
+        status_code=404,
+        detail={"error": "dataset_not_found", "message": "financial dataset files were not found or produced no nodes"},
+    )
 
 
 @app.post("/extract")
 def extract(request: ExtractRequest) -> dict:
     if request.options.mock:
-        return extract_mock(request.text)
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "mock_disabled", "message": "mock extraction is disabled for business runtime"},
+        )
 
     try:
         gateway = HttpLLMGateway()
@@ -340,11 +345,18 @@ def text2cypher(request: Text2CypherRequest):
         fallback = answer_text2cypher(request.question)
         if fallback.safety.passed:
             cypher, rules = generate_cypher_with_llm(request.question, HttpLLMGateway())
+            if settings.graph_backend.lower() == "neo4j":
+                result = execute_readonly_cypher(create_neo4j_driver(), cypher)
+                return {
+                    "cypher": cypher,
+                    "safety": Text2CypherSafety(passed=True, rules=rules).model_dump(),
+                    **result,
+                }
             return {
                 "cypher": cypher,
                 "safety": Text2CypherSafety(passed=True, rules=rules).model_dump(),
                 "table": {"columns": [], "rows": []},
-                "graph": sample_graph().model_dump(),
+                "graph": graph_store.all_graph().model_dump(),
             }
     except ValueError as exc:
         return JSONResponse(
@@ -356,10 +368,7 @@ def text2cypher(request: Text2CypherRequest):
             },
         )
     except Exception as exc:
-        fallback = answer_text2cypher(request.question)
-        fallback.safety.rules.append("llm_fallback")
-        fallback.safety.reason = f"LLM unavailable, returned safe template: {exc}"
-        return fallback.model_dump()
+        _raise_llm_error(exc)
 
 
 @app.get("/jobs")
@@ -369,7 +378,7 @@ def list_jobs() -> dict:
 
 @app.post("/jobs/akshare/run")
 def run_akshare_job() -> dict:
-    return run_akshare_update_mock().model_dump()
+    return run_akshare_update().model_dump()
 
 
 @app.get("/jobs/{job_run_id}")
@@ -382,7 +391,13 @@ def get_job(job_run_id: str) -> dict:
 
 @app.get("/metrics/extraction")
 def extraction_metrics() -> dict:
-    return evaluate_gold_standard(default_gold_standard_path())
+    try:
+        return evaluate_gold_standard(default_gold_standard_path())
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "metrics_unavailable", "message": str(exc)},
+        ) from exc
 
 
 @app.post("/metrics/evaluate")
@@ -466,7 +481,7 @@ def get_market_kline(
     end_date: str | None = None,
     adjust: str = "qfq",
 ) -> dict:
-    if settings.market_live_enabled:
+    try:
         return build_kline_response(
             stock_code=stock_code,
             market=market,
@@ -475,14 +490,16 @@ def get_market_kline(
             end_date=end_date,
             adjust=adjust,
         )
-    return get_kline_mock(
-        stock_code=stock_code,
-        market=market,
-        period=period,
-        start_date=start_date,
-        end_date=end_date,
-        adjust=adjust,
-    )
+    except MarketDataError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "market_data_error", "message": str(exc)},
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "market_data_error", "message": str(exc)},
+        ) from exc
 
 
 def _sse_stream(token_stream: Iterable[str], metadata: dict) -> StreamingResponse:

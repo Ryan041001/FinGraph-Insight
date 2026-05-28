@@ -6,7 +6,6 @@ from collections.abc import Callable
 from typing import Any
 
 from app.services.entity_resolution_service import normalize_entity_name
-from app.services.extraction_service import extract_mock
 
 
 PredictionFunction = Callable[[str], dict[str, Any]]
@@ -14,8 +13,11 @@ PredictionFunction = Callable[[str], dict[str, Any]]
 
 def evaluate_gold_standard(
     path: str | Path,
-    predictor: PredictionFunction = extract_mock,
+    predictor: PredictionFunction | None = None,
 ) -> dict[str, Any]:
+    if predictor is None:
+        raise RuntimeError("A real extraction predictor must be configured for metrics evaluation.")
+
     samples = json.loads(Path(path).read_text(encoding="utf-8"))
     entity_gold_total = 0
     entity_pred_total = 0

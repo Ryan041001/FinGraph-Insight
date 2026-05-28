@@ -6,7 +6,6 @@ from threading import RLock
 from typing import Any
 
 from app.models.api import GraphEdge, GraphNode, GraphPayload
-from app.services.mock_data import sample_graph
 
 
 def stable_id(*parts: object) -> str:
@@ -140,8 +139,7 @@ class InMemoryGraphStore:
         with self._lock:
             company = self._find_company(name)
             if company is None:
-                graph = sample_graph(name)
-                return self._profile_from_graph(name, graph, depth)
+                return self._profile_from_graph(name, GraphPayload(nodes=[], edges=[]), depth)
 
             related_graph = self._subgraph_for_node(company.id, max_depth=max(1, min(depth, 3)))
             return self._profile_from_graph(company.label, related_graph, depth)
@@ -150,7 +148,7 @@ class InMemoryGraphStore:
         with self._lock:
             start = self._find_node_by_label(entity)
             if start is None:
-                return sample_graph(entity)
+                return GraphPayload(nodes=[], edges=[])
 
             graph = self._subgraph_for_node(start.id, max_depth=max(1, min(depth, 3)))
             return GraphPayload(nodes=graph.nodes[:limit], edges=graph.edges[:limit])

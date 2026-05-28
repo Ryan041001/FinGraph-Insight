@@ -3,7 +3,7 @@ import json
 
 from app.models.api import Text2CypherResponse, Text2CypherSafety
 from app.services.llm_service import LLMGateway, LLMTask
-from app.services.mock_data import sample_graph
+from app.models.api import GraphPayload
 
 
 DEFAULT_LIMIT = 50
@@ -79,8 +79,8 @@ def answer_text2cypher(question: str) -> Text2CypherResponse:
     return Text2CypherResponse(
         cypher=cypher,
         safety=Text2CypherSafety(passed=True, rules=safety_rules),
-        table={"columns": ["company", "relation", "target"], "rows": [["示例科技", "RECEIVED_FUNDING", "B轮融资事件"]]},
-        graph=sample_graph(),
+        table={"columns": [], "rows": []},
+        graph=GraphPayload(nodes=[], edges=[]),
     )
 
 

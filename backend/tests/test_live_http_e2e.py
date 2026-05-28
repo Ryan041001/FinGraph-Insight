@@ -42,7 +42,7 @@ def live_server():
     base_url = f"http://{SERVER_HOST}:{port}"
     env = os.environ.copy()
     env["GRAPH_BACKEND"] = "memory"
-    env["MARKET_LIVE_ENABLED"] = "false"
+    env["MARKET_LIVE_ENABLED"] = "true"
     env["SCHEDULER_ENABLED"] = "true"
     env["OPENAI_API_KEY"] = ""
     env["OPENAI_BASE_URL"] = ""
@@ -71,15 +71,11 @@ def test_live_http_backend_flow_without_external_dependencies(live_server):
     base_url = live_server
     client = httpx.Client(base_url=base_url, timeout=30.0)
 
-    extract_payload = {
-        "text": "端测云链科技有限公司完成Pre-A轮融资，端测高榕资本跟投。",
-        "options": {"mock": True, "self_refine": False, "judge": False},
-    }
     document_payload = {
         "doc_id": "live_e2e_doc_001",
-        "title": "端测云链融资新闻",
-        "text": "端测云链科技有限公司完成Pre-A轮融资，端测高榕资本跟投，融资金额1200万元。",
-        "metadata": {"source": "live_http_e2e", "pub_date": "2026-05-28"},
+        "title": "邦盛科技融资新闻",
+        "text": "邦盛科技C轮获得国投创业1.5亿人民币投资。",
+        "metadata": {"source": "live_http_e2e", "pub_date": "2018-03-05"},
     }
 
     health = client.get("/health")
@@ -87,42 +83,29 @@ def test_live_http_backend_flow_without_external_dependencies(live_server):
     assert health.json()["status"] == "ok"
     assert health.json()["neo4j"] == "memory"
 
-    first_import = client.post("/datasets/import", json={"dataset": "sample_graph"})
-    second_import = client.post("/datasets/import", json={"dataset": "sample_graph"})
+    first_import = client.post("/datasets/import", json={"dataset": "financial_datasets"})
+    second_import = client.post("/datasets/import", json={"dataset": "financial_datasets"})
     assert first_import.status_code == 200
     assert second_import.status_code == 200
     assert first_import.json()["status"] == "success"
     assert second_import.json()["nodes_created"] == 0
     assert second_import.json()["relationships_created"] == 0
 
-    extract_response = client.post("/extract", json=extract_payload)
-    assert extract_response.status_code == 200
-    extracted = extract_response.json()
-    assert extracted["entities"]
-    assert extracted["relationships"]
-
-    first_graph_import = client.post("/graph/import", json=extracted)
-    second_graph_import = client.post("/graph/import", json=extracted)
-    assert first_graph_import.status_code == 200
-    assert second_graph_import.status_code == 200
-    assert first_graph_import.json()["relationships_created"] >= 1
-    assert second_graph_import.json()["relationships_created"] == 0
-
-    profile = client.get("/graph/company/端测云链科技有限公司", params={"depth": 2})
+    profile = client.get("/graph/company/邦盛科技", params={"depth": 2})
     assert profile.status_code == 200
     profile_payload = profile.json()
-    assert profile_payload["company"]["name"] == "端测云链科技有限公司"
+    assert profile_payload["company"]["name"] == "邦盛科技"
     assert profile_payload["graph"]["nodes"]
-    assert any("端测云链科技有限公司" in edge["provenance"]["source_text"] for edge in profile_payload["graph"]["edges"])
+    assert any("邦盛科技" in edge["provenance"]["source_text"] for edge in profile_payload["graph"]["edges"])
 
-    subgraph = client.get("/graph/subgraph", params={"entity": "端测云链科技有限公司", "depth": 2, "limit": 20})
+    subgraph = client.get("/graph/subgraph", params={"entity": "邦盛科技", "depth": 2, "limit": 20})
     assert subgraph.status_code == 200
     assert len(subgraph.json()["nodes"]) >= 3
     assert len(subgraph.json()["edges"]) >= 2
 
     path = client.get(
         "/graph/path",
-        params={"source": "端测高榕资本", "target": "端测云链科技有限公司", "max_depth": 3},
+        params={"source": "国投创业", "target": "邦盛科技", "max_depth": 3},
     )
     assert path.status_code == 200
     path_payload = path.json()
@@ -134,9 +117,8 @@ def test_live_http_backend_flow_without_external_dependencies(live_server):
     assert rag_document.json()["chunks_indexed"] >= 1
 
     text2cypher_safe = client.post("/qa/text2cypher", json={"question": "查询所有公司"})
-    assert text2cypher_safe.status_code == 200
-    assert text2cypher_safe.json()["safety"]["passed"] is True
-    assert "llm_fallback" in text2cypher_safe.json()["safety"]["rules"]
+    assert text2cypher_safe.status_code == 502
+    assert text2cypher_safe.json()["detail"]["error"] == "llm_error"
 
     text2cypher_unsafe = client.post("/qa/text2cypher", json={"question": "删除所有节点"})
     assert text2cypher_unsafe.status_code == 400
@@ -148,8 +130,8 @@ def test_live_http_backend_flow_without_external_dependencies(live_server):
     run_job = client.post("/jobs/akshare/run")
     assert run_job.status_code == 200
     job_payload = run_job.json()
-    assert job_payload["status"] == "success"
-    assert job_payload["new_documents"] >= 1
+    assert job_payload["status"] in {"success", "failed"}
+    assert job_payload["new_documents"] >= 0
 
     jobs_after = client.get("/jobs")
     assert jobs_after.status_code == 200
@@ -161,12 +143,12 @@ def test_live_http_backend_flow_without_external_dependencies(live_server):
     assert job_detail.json()["job_run_id"] == job_payload["job_run_id"]
 
     metrics = client.get("/metrics/extraction")
-    assert metrics.status_code == 200
-    assert metrics.json()["sample_count"] >= 50
+    assert metrics.status_code == 503
+    assert metrics.json()["detail"]["error"] == "metrics_unavailable"
 
     stock_analysis = client.post(
         "/analysis/stock",
-        json={"stock_code": "600000", "company_name": "端测云链科技有限公司"},
+        json={"stock_code": "600000", "company_name": "邦盛科技"},
     )
     assert stock_analysis.status_code == 200
     assert stock_analysis.json()["target"]["stock_code"] == "600000"
@@ -178,12 +160,22 @@ def test_live_http_backend_flow_without_external_dependencies(live_server):
 
     kline = client.get(
         "/market/kline/600000",
-        params={"market": "A", "period": "daily", "start_date": "2026-05-01", "end_date": "2026-05-28"},
+        params={"market": "A", "period": "daily", "start_date": "2024-01-01", "end_date": "2024-01-10"},
     )
-    assert kline.status_code == 200
+    assert kline.status_code in {200, 503}
     kline_payload = kline.json()
-    assert kline_payload["data_source"] == "mock"
-    assert kline_payload["kline_data"]
-    assert "events" in kline_payload
+    if kline.status_code == 200:
+        assert kline_payload["data_source"] == "akshare"
+        assert kline_payload["kline_data"]
+        assert kline_payload["events"] == []
+    else:
+        assert kline_payload["detail"]["error"] == "market_data_error"
+
+    rendered_responses = "\n".join(
+        [str(profile_payload), str(subgraph.json()), str(path_payload), str(kline_payload)]
+    )
+    assert "sample_graph" not in rendered_responses
+    assert "data_source': 'mock" not in rendered_responses
+    assert "示例上市公司" not in rendered_responses
 
     client.close()

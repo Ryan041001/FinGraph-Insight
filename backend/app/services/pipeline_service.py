@@ -5,7 +5,6 @@ from datetime import datetime
 from typing import Any
 
 from app.models.api import JobRun
-from app.services.extraction_service import extract_mock
 from app.services.graph_runtime import import_extraction_payload_runtime
 from app.services.graph_store import ImportStats, stable_id
 from app.services.vector_store import InMemoryVectorStore, vector_store
@@ -20,7 +19,7 @@ Importer = Callable[[dict[str, Any]], ImportStats]
 def run_extraction_pipeline(
     *,
     fetcher: DocumentFetcher,
-    extractor: Extractor = extract_mock,
+    extractor: Extractor | None = None,
     judge: Judge | None = None,
     importer: Importer = import_extraction_payload_runtime,
     document_vector_store: InMemoryVectorStore = vector_store,
@@ -40,6 +39,8 @@ def run_extraction_pipeline(
 
     for document in documents:
         try:
+            if extractor is None:
+                raise RuntimeError("A real extractor must be provided for the ingestion pipeline.")
             text = _document_text(document)
             doc_id = _document_id(document, text)
             document_vector_store.add_document(
