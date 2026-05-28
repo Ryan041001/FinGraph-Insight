@@ -17,7 +17,7 @@ def import_graph_runtime(
     stats = memory_store.import_graph(graph)
     if settings.graph_backend == "neo4j":
         writer = neo4j_writer or Neo4jGraphWriter(create_neo4j_driver())
-        writer.write_graph(graph)
+        return writer.write_graph(graph)
     return stats
 
 

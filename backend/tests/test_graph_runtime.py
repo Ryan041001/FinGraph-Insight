@@ -15,9 +15,11 @@ class FakeMemoryStore:
 class FakeWriter:
     def __init__(self):
         self.graphs = []
+        self.stats = ImportStats(nodes_created=9, nodes_matched=1, relationships_created=8, relationships_skipped=2)
 
     def write_graph(self, graph):
         self.graphs.append(graph)
+        return self.stats
 
 
 def test_import_graph_runtime_uses_memory_only_by_default(monkeypatch):
@@ -42,7 +44,7 @@ def test_import_graph_runtime_writes_through_to_neo4j_when_enabled(monkeypatch):
 
     stats = import_graph_runtime(graph, memory_store=memory, neo4j_writer=writer)
 
-    assert stats == "memory_stats"
+    assert stats == writer.stats
     assert memory.imported == [graph]
     assert writer.graphs == [graph]
 
@@ -73,7 +75,7 @@ def test_import_extraction_payload_runtime_converts_payload_and_writes_to_neo4j(
 
     stats = import_extraction_payload_runtime(payload, memory_store=memory, neo4j_writer=writer)
 
-    assert stats == "memory_stats"
+    assert stats == writer.stats
     assert len(memory.imported) == 1
     assert memory.imported[0].nodes[0].label == "星河数据"
     assert memory.imported[0].edges[0].type == "INVESTED_IN"

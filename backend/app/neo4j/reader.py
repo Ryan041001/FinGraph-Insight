@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from neo4j.graph import Node, Path, Relationship
+
 from app.models.api import GraphEdge, GraphNode, GraphPayload
 from app.services.graph_store import node_id
 
@@ -65,12 +67,12 @@ LIMIT 10
 
     def _run(self, query: str, parameters: dict[str, Any]) -> list[dict[str, Any]]:
         with self._driver.session() as session:
-            return [record.data() for record in session.run(query, parameters)]
+            return [dict(record.items()) for record in session.run(query, parameters)]
 
 
 def execute_readonly_cypher(driver: Any, cypher: str) -> dict[str, Any]:
     with driver.session() as session:
-        records = [record.data() for record in session.run(cypher, {})]
+        records = [dict(record.items()) for record in session.run(cypher, {})]
 
     columns: list[str] = []
     rows: list[list[Any]] = []
@@ -95,6 +97,22 @@ def _graph_from_records(records: list[dict[str, Any]]) -> GraphPayload:
 
 
 def _collect_graph_value(value: Any, nodes: dict[str, GraphNode], edges: dict[str, GraphEdge]) -> None:
+    if isinstance(value, Path):
+        for node in value.nodes:
+            graph_node = _node_from_neo4j(node)
+            nodes[graph_node.id] = graph_node
+        for relationship in value.relationships:
+            graph_edge = _edge_from_neo4j(relationship)
+            edges[graph_edge.id] = graph_edge
+        return
+    if isinstance(value, Node):
+        graph_node = _node_from_neo4j(value)
+        nodes[graph_node.id] = graph_node
+        return
+    if isinstance(value, Relationship):
+        graph_edge = _edge_from_neo4j(value)
+        edges[graph_edge.id] = graph_edge
+        return
     if isinstance(value, dict):
         if "nodes" in value or "relationships" in value:
             for node in value.get("nodes", []):
@@ -122,21 +140,34 @@ def _collect_graph_value(value: Any, nodes: dict[str, GraphNode], edges: dict[st
 
 def _node_from_neo4j(value: Any) -> GraphNode:
     properties = _properties(value)
-    labels = list(value.get("labels", [])) if isinstance(value, dict) else []
+    if isinstance(value, Node):
+        labels = list(value.labels)
+        native_id = value.element_id
+    else:
+        labels = list(value.get("labels", [])) if isinstance(value, dict) else []
+        native_id = value.get("id") if isinstance(value, dict) else None
     node_type = labels[0] if labels else str(properties.get("type") or "Entity")
-    node_id_value = str(value.get("id") or properties.get("id") or node_id(node_type, str(properties.get("name", ""))))
+    node_id_value = str(properties.get("id") or native_id or node_id(node_type, str(properties.get("name", ""))))
     label = str(properties.get("name") or properties.get("label") or node_id_value)
     return GraphNode(id=node_id_value, label=label, type=node_type, properties=properties, risk_level=str(properties.get("risk_level", "normal")))
 
 
 def _edge_from_neo4j(value: Any) -> GraphEdge:
     properties = _properties(value)
-    edge_id = str(value.get("id") or properties.get("id"))
-    edge_type = str(value.get("type") or properties.get("type") or "RELATED_TO")
+    if isinstance(value, Relationship):
+        edge_id = str(properties.get("id") or value.element_id)
+        edge_type = str(value.type or properties.get("type") or "RELATED_TO")
+        source = _node_ref(value.start_node)
+        target = _node_ref(value.end_node)
+    else:
+        edge_id = str(value.get("id") or properties.get("id"))
+        edge_type = str(value.get("type") or properties.get("type") or "RELATED_TO")
+        source = str(value.get("source") or value.get("start") or properties.get("source"))
+        target = str(value.get("target") or value.get("end") or properties.get("target"))
     return GraphEdge(
         id=edge_id,
-        source=str(value.get("source") or value.get("start") or properties.get("source")),
-        target=str(value.get("target") or value.get("end") or properties.get("target")),
+        source=source,
+        target=target,
         type=edge_type,
         label=str(properties.get("label") or edge_type),
         confidence=float(properties.get("confidence", 1.0)),
@@ -147,6 +178,8 @@ def _edge_from_neo4j(value: Any) -> GraphEdge:
 
 
 def _properties(value: Any) -> dict[str, Any]:
+    if isinstance(value, (Node, Relationship)):
+        return dict(value)
     if isinstance(value, dict):
         raw = value.get("properties", value)
         if isinstance(raw, dict):
@@ -154,7 +187,23 @@ def _properties(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _node_ref(value: Node | None) -> str:
+    if value is None:
+        return ""
+    properties = _properties(value)
+    labels = list(value.labels)
+    node_type = labels[0] if labels else str(properties.get("type") or "Entity")
+    return str(properties.get("id") or value.element_id or node_id(node_type, str(properties.get("name", ""))))
+
+
 def _table_value(value: Any) -> Any:
+    if isinstance(value, Path):
+        return {
+            "nodes": [_properties(node) for node in value.nodes],
+            "relationships": [_properties(relationship) for relationship in value.relationships],
+        }
+    if isinstance(value, (Node, Relationship)):
+        return _properties(value)
     if isinstance(value, dict) and ("labels" in value or "properties" in value or "nodes" in value or "relationships" in value):
         return _properties(value) or value
     if isinstance(value, list):

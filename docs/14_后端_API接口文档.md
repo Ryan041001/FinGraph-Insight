@@ -15,7 +15,7 @@ http://127.0.0.1:8000
 - 前端默认通过 `VITE_API_BASE_URL` 配置后端地址。
 - 图结构统一使用 `GraphPayload`：`nodes` 和 `edges`。
 - 本文示例优先采用 2026-05-28 端到端测试的真实返回。
-- 本轮自动化 live HTTP 测试在 `GRAPH_BACKEND=memory` 下启动真实 `uvicorn` 进程完成，并导入真实 FinancialDatasets。Neo4j 本机服务不可连接，真实 Neo4j 落库结果需另行复测。
+- 本轮 live HTTP 测试已覆盖 `GRAPH_BACKEND=memory` 和 `GRAPH_BACKEND=neo4j` 两种运行态；Neo4j Community 5.26.26 本机联调通过，真实 FinancialDatasets 已落库并可查询。
 
 LLM 配置：
 
@@ -110,8 +110,8 @@ AI HTML 输出约束：
 ```json
 {
   "status": "ok",
-  "neo4j": "memory",
-  "scheduler": "running"
+  "neo4j": "ok",
+  "scheduler": "disabled"
 }
 ```
 
@@ -154,7 +154,7 @@ AI HTML 输出约束：
 }
 ```
 
-重复导入时，`nodes_created` 和 `relationships_created` 应下降为 0 或接近 0。
+重复导入时，`nodes_created` 和 `relationships_created` 应下降为 0；Neo4j 模式会按真实 `MERGE` 结果返回 `nodes_skipped` 和 `relationships_skipped`。
 
 ## 4. 实时抽取
 
@@ -233,7 +233,7 @@ AI HTML 输出约束：
 
 - 所有导入都会先写入内存图运行态，保证当前 API 查询可立即展示。
 - 当 `GRAPH_BACKEND=neo4j` 时，导入会同步调用 Neo4j writer 写穿到 Neo4j。
-- 本轮测试没有可连接的 Neo4j 实例，因此真实数据库落库需在启动 Neo4j 后补测。
+- Neo4j 模式下，导入响应中的新增/跳过数量来自 Neo4j 真实写入统计。
 
 请求示例：
 

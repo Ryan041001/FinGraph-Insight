@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from app.models.api import GraphEdge, GraphNode, GraphPayload
+from app.services.graph_store import ImportStats
 
 
 _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
@@ -60,14 +61,24 @@ class Neo4jGraphWriter:
     def __init__(self, driver: Any) -> None:
         self._driver = driver
 
-    def write_graph(self, graph: GraphPayload) -> None:
+    def write_graph(self, graph: GraphPayload) -> ImportStats:
+        nodes_created = 0
+        relationships_created = 0
         with self._driver.session() as session:
             for node in graph.nodes:
                 query, parameters = build_merge_node_query(node)
-                session.run(query, parameters)
+                result = session.run(query, parameters)
+                nodes_created += _summary_counter(result, "nodes_created")
             for edge in graph.edges:
                 query, parameters = build_merge_relationship_query(edge)
-                session.run(query, parameters)
+                result = session.run(query, parameters)
+                relationships_created += _summary_counter(result, "relationships_created")
+        return ImportStats(
+            nodes_created=nodes_created,
+            nodes_matched=max(0, len(graph.nodes) - nodes_created),
+            relationships_created=relationships_created,
+            relationships_skipped=max(0, len(graph.edges) - relationships_created),
+        )
 
 
 def _flat_properties(properties: dict[str, Any]) -> dict[str, Any]:
@@ -82,3 +93,12 @@ def _flat_properties(properties: dict[str, Any]) -> dict[str, Any]:
         else:
             flattened[key] = str(value)
     return flattened
+
+
+def _summary_counter(result: Any, counter_name: str) -> int:
+    consume = getattr(result, "consume", None)
+    if not callable(consume):
+        return 0
+    summary = consume()
+    counters = getattr(summary, "counters", None)
+    return int(getattr(counters, counter_name, 0) or 0)

@@ -1,9 +1,9 @@
 import pytest
 
-from app.models.api import GraphEdge, GraphNode
+from app.models.api import GraphEdge, GraphNode, GraphPayload
 from app.neo4j.connection import Neo4jConnectionConfig, check_neo4j_health, create_neo4j_driver
 from app.neo4j.reader import Neo4jGraphReader, execute_readonly_cypher
-from app.neo4j.writer import build_merge_node_query, build_merge_relationship_query
+from app.neo4j.writer import Neo4jGraphWriter, build_merge_node_query, build_merge_relationship_query
 
 
 def test_build_merge_node_query_uses_label_and_stable_id():
@@ -103,6 +103,9 @@ class FakeRecord:
     def data(self):
         return self._data
 
+    def items(self):
+        return self._data.items()
+
 
 class FakeSession:
     def __init__(self, records):
@@ -123,6 +126,47 @@ class FakeSession:
 class FakeDriver:
     def __init__(self, records):
         self.session_instance = FakeSession(records)
+
+    def session(self):
+        return self.session_instance
+
+
+class FakeSummaryCounter:
+    def __init__(self, nodes_created=0, relationships_created=0):
+        self.nodes_created = nodes_created
+        self.relationships_created = relationships_created
+
+
+class FakeResult:
+    def __init__(self, nodes_created=0, relationships_created=0):
+        self._counters = FakeSummaryCounter(nodes_created=nodes_created, relationships_created=relationships_created)
+
+    def consume(self):
+        class Summary:
+            counters = self._counters
+
+        return Summary()
+
+
+class FakeCountingSession:
+    def __init__(self, results):
+        self._results = list(results)
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def run(self, query, parameters=None):
+        self.calls.append((query, parameters or {}))
+        return self._results.pop(0)
+
+
+class FakeCountingDriver:
+    def __init__(self, results):
+        self.session_instance = FakeCountingSession(results)
 
     def session(self):
         return self.session_instance
@@ -197,6 +241,71 @@ def test_neo4j_reader_returns_paths_from_real_records():
     query, parameters = driver.session_instance.calls[0]
     assert "[*1..3]" in query
     assert parameters == {"source": "国投创业", "target": "邦盛科技"}
+
+
+def test_neo4j_writer_returns_native_creation_counts():
+    graph = GraphPayload(
+        nodes=[
+            GraphNode(id="company_bangsheng", label="邦盛科技", type="Company"),
+            GraphNode(id="event_bangsheng", label="邦盛科技C轮融资事件", type="Event"),
+        ],
+        edges=[
+            GraphEdge(
+                id="rel_bangsheng",
+                source="company_bangsheng",
+                target="event_bangsheng",
+                type="RECEIVED_FUNDING",
+                label="获得融资",
+            )
+        ],
+    )
+    driver = FakeCountingDriver(
+        [
+            FakeResult(nodes_created=1),
+            FakeResult(nodes_created=0),
+            FakeResult(relationships_created=1),
+        ]
+    )
+
+    stats = Neo4jGraphWriter(driver).write_graph(graph)
+
+    assert stats.nodes_created == 1
+    assert stats.nodes_matched == 1
+    assert stats.relationships_created == 1
+    assert stats.relationships_skipped == 0
+
+
+def test_reader_collects_native_neo4j_path_objects():
+    from neo4j.graph import Graph, Node, Path
+
+    graph = Graph()
+    investor = Node(
+        graph,
+        "node-investor",
+        1,
+        ["Institution"],
+        {"id": "institution_gt", "name": "国投创业"},
+    )
+    company = Node(
+        graph,
+        "node-company",
+        2,
+        ["Company"],
+        {"id": "company_bangsheng", "name": "邦盛科技"},
+    )
+    relationship_type = graph.relationship_type("INVESTED_IN")
+    relationship = relationship_type(graph, "rel-path", 3, {"id": "rel_path", "label": "投资"})
+    relationship._start_node = investor
+    relationship._end_node = company
+
+    driver = FakeDriver([{"path": Path(investor, relationship)}])
+
+    paths = Neo4jGraphReader(driver).paths("国投创业", "邦盛科技", max_depth=3)
+
+    assert paths[0]["length"] == 1
+    assert [node["label"] for node in paths[0]["nodes"]] == ["国投创业", "邦盛科技"]
+    assert paths[0]["edges"][0]["source"] == "institution_gt"
+    assert paths[0]["edges"][0]["target"] == "company_bangsheng"
 
 
 def test_execute_readonly_cypher_returns_table_and_graph_payload():
