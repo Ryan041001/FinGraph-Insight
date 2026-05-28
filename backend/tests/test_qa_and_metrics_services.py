@@ -21,7 +21,7 @@ def test_evaluate_gold_standard_returns_metric_contract():
 
     metrics = evaluate_gold_standard(gold_path)
 
-    assert metrics["sample_count"] == 1
+    assert metrics["sample_count"] >= 50
     assert metrics["entity_precision"] == 1.0
     assert metrics["entity_recall"] == 1.0
     assert metrics["relation_precision"] == 1.0

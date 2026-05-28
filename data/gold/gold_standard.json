@@ -1,24 +1,52 @@
 [
-  {
-    "id": "gold_001",
-    "text": "红杉资本领投了示例科技B轮融资，融资金额为3000万元。",
-    "entities": [
-      {"name": "红杉资本", "type": "Institution"},
-      {"name": "示例科技", "type": "Company"},
-      {"name": "B轮融资", "type": "Event"}
-    ],
-    "relationships": [
-      {
-        "head": "红杉资本",
-        "relation": "INVESTED_IN",
-        "tail": "B轮融资",
-        "attributes": {"role": "领投", "amount": "3000万元"}
-      },
-      {
-        "head": "示例科技",
-        "relation": "RECEIVED_FUNDING",
-        "tail": "B轮融资"
-      }
-    ]
-  }
+  {"id":"gold_001","text":"红杉资本领投了星河数据B轮融资，融资金额为3000万元。","entities":[{"name":"红杉资本","type":"Institution"},{"name":"星河数据","type":"Company"},{"name":"B轮融资","type":"Event"}],"relationships":[{"head":"红杉资本","relation":"INVESTED_IN","tail":"B轮融资","attributes":{"role":"领投","amount":"3000万元"}},{"head":"星河数据","relation":"RECEIVED_FUNDING","tail":"B轮融资"}]},
+  {"id":"gold_002","text":"启明创投参与蓝海智能A轮融资，融资金额为5000万元。","entities":[{"name":"启明创投","type":"Institution"},{"name":"蓝海智能","type":"Company"},{"name":"A轮融资","type":"Event"}],"relationships":[{"head":"启明创投","relation":"INVESTED_IN","tail":"A轮融资","attributes":{"role":"参与投资","amount":"5000万元"}},{"head":"蓝海智能","relation":"RECEIVED_FUNDING","tail":"A轮融资"}]},
+  {"id":"gold_003","text":"高瓴资本领投云启医疗C轮融资，金额为1亿元。","entities":[{"name":"高瓴资本","type":"Institution"},{"name":"云启医疗","type":"Company"},{"name":"C轮融资","type":"Event"}],"relationships":[{"head":"高瓴资本","relation":"INVESTED_IN","tail":"C轮融资","attributes":{"role":"领投","amount":"1亿元"}},{"head":"云启医疗","relation":"RECEIVED_FUNDING","tail":"C轮融资"}]},
+  {"id":"gold_004","text":"IDG资本投资了智联制造Pre-A轮融资。","entities":[{"name":"IDG资本","type":"Institution"},{"name":"智联制造","type":"Company"},{"name":"Pre-A轮融资","type":"Event"}],"relationships":[{"head":"IDG资本","relation":"INVESTED_IN","tail":"Pre-A轮融资","attributes":{"role":"投资"}},{"head":"智联制造","relation":"RECEIVED_FUNDING","tail":"Pre-A轮融资"}]},
+  {"id":"gold_005","text":"经纬创投跟投了绿能科技B+轮融资。","entities":[{"name":"经纬创投","type":"Institution"},{"name":"绿能科技","type":"Company"},{"name":"B+轮融资","type":"Event"}],"relationships":[{"head":"经纬创投","relation":"INVESTED_IN","tail":"B+轮融资","attributes":{"role":"跟投"}},{"head":"绿能科技","relation":"RECEIVED_FUNDING","tail":"B+轮融资"}]},
+  {"id":"gold_006","text":"真格基金参与投资了明德教育天使轮融资。","entities":[{"name":"真格基金","type":"Institution"},{"name":"明德教育","type":"Company"},{"name":"天使轮融资","type":"Event"}],"relationships":[{"head":"真格基金","relation":"INVESTED_IN","tail":"天使轮融资","attributes":{"role":"参与投资"}},{"head":"明德教育","relation":"RECEIVED_FUNDING","tail":"天使轮融资"}]},
+  {"id":"gold_007","text":"顺为资本领投了数盾安全A+轮融资。","entities":[{"name":"顺为资本","type":"Institution"},{"name":"数盾安全","type":"Company"},{"name":"A+轮融资","type":"Event"}],"relationships":[{"head":"顺为资本","relation":"INVESTED_IN","tail":"A+轮融资","attributes":{"role":"领投"}},{"head":"数盾安全","relation":"RECEIVED_FUNDING","tail":"A+轮融资"}]},
+  {"id":"gold_008","text":"源码资本投资了海纳物流B轮融资。","entities":[{"name":"源码资本","type":"Institution"},{"name":"海纳物流","type":"Company"},{"name":"B轮融资","type":"Event"}],"relationships":[{"head":"源码资本","relation":"INVESTED_IN","tail":"B轮融资","attributes":{"role":"投资"}},{"head":"海纳物流","relation":"RECEIVED_FUNDING","tail":"B轮融资"}]},
+  {"id":"gold_009","text":"君联资本参与了远景农业C轮融资。","entities":[{"name":"君联资本","type":"Institution"},{"name":"远景农业","type":"Company"},{"name":"C轮融资","type":"Event"}],"relationships":[{"head":"君联资本","relation":"INVESTED_IN","tail":"C轮融资","attributes":{"role":"参与投资"}},{"head":"远景农业","relation":"RECEIVED_FUNDING","tail":"C轮融资"}]},
+  {"id":"gold_010","text":"深创投领投了华芯半导体D轮融资。","entities":[{"name":"深创投","type":"Institution"},{"name":"华芯半导体","type":"Company"},{"name":"D轮融资","type":"Event"}],"relationships":[{"head":"深创投","relation":"INVESTED_IN","tail":"D轮融资","attributes":{"role":"领投"}},{"head":"华芯半导体","relation":"RECEIVED_FUNDING","tail":"D轮融资"}]},
+  {"id":"gold_011","text":"红杉资本持有星河数据12.5%的股份。","entities":[{"name":"红杉资本","type":"Institution"},{"name":"星河数据","type":"Company"}],"relationships":[{"head":"红杉资本","relation":"HOLDS_SHARES","tail":"星河数据","attributes":{"ratio":"12.5%"}}]},
+  {"id":"gold_012","text":"启明创投持有蓝海智能8%的股份。","entities":[{"name":"启明创投","type":"Institution"},{"name":"蓝海智能","type":"Company"}],"relationships":[{"head":"启明创投","relation":"HOLDS_SHARES","tail":"蓝海智能","attributes":{"ratio":"8%"}}]},
+  {"id":"gold_013","text":"高瓴资本持有云启医疗15%的股权。","entities":[{"name":"高瓴资本","type":"Institution"},{"name":"云启医疗","type":"Company"}],"relationships":[{"head":"高瓴资本","relation":"HOLDS_SHARES","tail":"云启医疗","attributes":{"ratio":"15%"}}]},
+  {"id":"gold_014","text":"IDG资本持有智联制造6.2%的股份。","entities":[{"name":"IDG资本","type":"Institution"},{"name":"智联制造","type":"Company"}],"relationships":[{"head":"IDG资本","relation":"HOLDS_SHARES","tail":"智联制造","attributes":{"ratio":"6.2%"}}]},
+  {"id":"gold_015","text":"经纬创投持有绿能科技9.8%的股份。","entities":[{"name":"经纬创投","type":"Institution"},{"name":"绿能科技","type":"Company"}],"relationships":[{"head":"经纬创投","relation":"HOLDS_SHARES","tail":"绿能科技","attributes":{"ratio":"9.8%"}}]},
+  {"id":"gold_016","text":"真格基金持有明德教育5%的股份。","entities":[{"name":"真格基金","type":"Institution"},{"name":"明德教育","type":"Company"}],"relationships":[{"head":"真格基金","relation":"HOLDS_SHARES","tail":"明德教育","attributes":{"ratio":"5%"}}]},
+  {"id":"gold_017","text":"顺为资本持有数盾安全7.5%的股权。","entities":[{"name":"顺为资本","type":"Institution"},{"name":"数盾安全","type":"Company"}],"relationships":[{"head":"顺为资本","relation":"HOLDS_SHARES","tail":"数盾安全","attributes":{"ratio":"7.5%"}}]},
+  {"id":"gold_018","text":"源码资本持有海纳物流11%的股份。","entities":[{"name":"源码资本","type":"Institution"},{"name":"海纳物流","type":"Company"}],"relationships":[{"head":"源码资本","relation":"HOLDS_SHARES","tail":"海纳物流","attributes":{"ratio":"11%"}}]},
+  {"id":"gold_019","text":"君联资本持有远景农业4.5%的股份。","entities":[{"name":"君联资本","type":"Institution"},{"name":"远景农业","type":"Company"}],"relationships":[{"head":"君联资本","relation":"HOLDS_SHARES","tail":"远景农业","attributes":{"ratio":"4.5%"}}]},
+  {"id":"gold_020","text":"深创投持有华芯半导体13%的股份。","entities":[{"name":"深创投","type":"Institution"},{"name":"华芯半导体","type":"Company"}],"relationships":[{"head":"深创投","relation":"HOLDS_SHARES","tail":"华芯半导体","attributes":{"ratio":"13%"}}]},
+  {"id":"gold_021","text":"张三担任星河数据法定代表人。","entities":[{"name":"张三","type":"Person"},{"name":"星河数据","type":"Company"}],"relationships":[{"head":"张三","relation":"LEGAL_REP_OF","tail":"星河数据"}]},
+  {"id":"gold_022","text":"李四担任蓝海智能法定代表人。","entities":[{"name":"李四","type":"Person"},{"name":"蓝海智能","type":"Company"}],"relationships":[{"head":"李四","relation":"LEGAL_REP_OF","tail":"蓝海智能"}]},
+  {"id":"gold_023","text":"王五担任云启医疗董事长。","entities":[{"name":"王五","type":"Person"},{"name":"云启医疗","type":"Company"}],"relationships":[{"head":"王五","relation":"EXECUTIVE_OF","tail":"云启医疗","attributes":{"title":"董事长"}}]},
+  {"id":"gold_024","text":"赵六担任智联制造总经理。","entities":[{"name":"赵六","type":"Person"},{"name":"智联制造","type":"Company"}],"relationships":[{"head":"赵六","relation":"EXECUTIVE_OF","tail":"智联制造","attributes":{"title":"总经理"}}]},
+  {"id":"gold_025","text":"孙七担任绿能科技法定代表人。","entities":[{"name":"孙七","type":"Person"},{"name":"绿能科技","type":"Company"}],"relationships":[{"head":"孙七","relation":"LEGAL_REP_OF","tail":"绿能科技"}]},
+  {"id":"gold_026","text":"周八担任明德教育首席财务官。","entities":[{"name":"周八","type":"Person"},{"name":"明德教育","type":"Company"}],"relationships":[{"head":"周八","relation":"EXECUTIVE_OF","tail":"明德教育","attributes":{"title":"首席财务官"}}]},
+  {"id":"gold_027","text":"吴九担任数盾安全法定代表人。","entities":[{"name":"吴九","type":"Person"},{"name":"数盾安全","type":"Company"}],"relationships":[{"head":"吴九","relation":"LEGAL_REP_OF","tail":"数盾安全"}]},
+  {"id":"gold_028","text":"郑十担任海纳物流运营负责人。","entities":[{"name":"郑十","type":"Person"},{"name":"海纳物流","type":"Company"}],"relationships":[{"head":"郑十","relation":"EXECUTIVE_OF","tail":"海纳物流","attributes":{"title":"运营负责人"}}]},
+  {"id":"gold_029","text":"陈一担任远景农业法定代表人。","entities":[{"name":"陈一","type":"Person"},{"name":"远景农业","type":"Company"}],"relationships":[{"head":"陈一","relation":"LEGAL_REP_OF","tail":"远景农业"}]},
+  {"id":"gold_030","text":"林二担任华芯半导体技术负责人。","entities":[{"name":"林二","type":"Person"},{"name":"华芯半导体","type":"Company"}],"relationships":[{"head":"林二","relation":"EXECUTIVE_OF","tail":"华芯半导体","attributes":{"title":"技术负责人"}}]},
+  {"id":"gold_031","text":"星河数据与蓝海智能达成战略合作。","entities":[{"name":"星河数据","type":"Company"},{"name":"蓝海智能","type":"Company"}],"relationships":[{"head":"星河数据","relation":"COOPERATES_WITH","tail":"蓝海智能","attributes":{"type":"战略合作"}}]},
+  {"id":"gold_032","text":"云启医疗与绿能科技签署联合研发协议。","entities":[{"name":"云启医疗","type":"Company"},{"name":"绿能科技","type":"Company"}],"relationships":[{"head":"云启医疗","relation":"COOPERATES_WITH","tail":"绿能科技","attributes":{"type":"联合研发"}}]},
+  {"id":"gold_033","text":"智联制造与华芯半导体建立供应链合作。","entities":[{"name":"智联制造","type":"Company"},{"name":"华芯半导体","type":"Company"}],"relationships":[{"head":"智联制造","relation":"COOPERATES_WITH","tail":"华芯半导体","attributes":{"type":"供应链合作"}}]},
+  {"id":"gold_034","text":"明德教育与海纳物流合作建设培训平台。","entities":[{"name":"明德教育","type":"Company"},{"name":"海纳物流","type":"Company"}],"relationships":[{"head":"明德教育","relation":"COOPERATES_WITH","tail":"海纳物流","attributes":{"type":"平台合作"}}]},
+  {"id":"gold_035","text":"数盾安全与远景农业共同开发数据安全系统。","entities":[{"name":"数盾安全","type":"Company"},{"name":"远景农业","type":"Company"}],"relationships":[{"head":"数盾安全","relation":"COOPERATES_WITH","tail":"远景农业","attributes":{"type":"技术合作"}}]},
+  {"id":"gold_036","text":"星河数据是星河云计算的控股股东。","entities":[{"name":"星河数据","type":"Company"},{"name":"星河云计算","type":"Company"}],"relationships":[{"head":"星河云计算","relation":"SUBSIDIARY_OF","tail":"星河数据"}]},
+  {"id":"gold_037","text":"蓝海智能控股蓝海机器人。","entities":[{"name":"蓝海智能","type":"Company"},{"name":"蓝海机器人","type":"Company"}],"relationships":[{"head":"蓝海机器人","relation":"SUBSIDIARY_OF","tail":"蓝海智能"}]},
+  {"id":"gold_038","text":"云启医疗旗下子公司为云启诊断。","entities":[{"name":"云启医疗","type":"Company"},{"name":"云启诊断","type":"Company"}],"relationships":[{"head":"云启诊断","relation":"SUBSIDIARY_OF","tail":"云启医疗"}]},
+  {"id":"gold_039","text":"智联制造控股智联装备。","entities":[{"name":"智联制造","type":"Company"},{"name":"智联装备","type":"Company"}],"relationships":[{"head":"智联装备","relation":"SUBSIDIARY_OF","tail":"智联制造"}]},
+  {"id":"gold_040","text":"绿能科技旗下子公司绿能储能获得增资。","entities":[{"name":"绿能科技","type":"Company"},{"name":"绿能储能","type":"Company"},{"name":"增资","type":"Event"}],"relationships":[{"head":"绿能储能","relation":"SUBSIDIARY_OF","tail":"绿能科技"}]},
+  {"id":"gold_041","text":"星河数据与星河云计算注册地址相同。","entities":[{"name":"星河数据","type":"Company"},{"name":"星河云计算","type":"Company"}],"relationships":[{"head":"星河数据","relation":"SAME_ADDRESS","tail":"星河云计算"}]},
+  {"id":"gold_042","text":"蓝海智能与蓝海机器人共用同一办公地址。","entities":[{"name":"蓝海智能","type":"Company"},{"name":"蓝海机器人","type":"Company"}],"relationships":[{"head":"蓝海智能","relation":"SAME_ADDRESS","tail":"蓝海机器人"}]},
+  {"id":"gold_043","text":"云启医疗与云启诊断的法定代表人均为王五。","entities":[{"name":"云启医疗","type":"Company"},{"name":"云启诊断","type":"Company"},{"name":"王五","type":"Person"}],"relationships":[{"head":"云启医疗","relation":"SAME_LEGAL_REP","tail":"云启诊断","attributes":{"person_name":"王五"}}]},
+  {"id":"gold_044","text":"智联制造与智联装备的法定代表人均为赵六。","entities":[{"name":"智联制造","type":"Company"},{"name":"智联装备","type":"Company"},{"name":"赵六","type":"Person"}],"relationships":[{"head":"智联制造","relation":"SAME_LEGAL_REP","tail":"智联装备","attributes":{"person_name":"赵六"}}]},
+  {"id":"gold_045","text":"绿能科技属于新能源行业。","entities":[{"name":"绿能科技","type":"Company"},{"name":"新能源","type":"Industry"}],"relationships":[{"head":"绿能科技","relation":"BELONGS_TO","tail":"新能源"}]},
+  {"id":"gold_046","text":"华芯半导体属于半导体行业。","entities":[{"name":"华芯半导体","type":"Company"},{"name":"半导体","type":"Industry"}],"relationships":[{"head":"华芯半导体","relation":"BELONGS_TO","tail":"半导体"}]},
+  {"id":"gold_047","text":"数盾安全属于网络安全行业。","entities":[{"name":"数盾安全","type":"Company"},{"name":"网络安全","type":"Industry"}],"relationships":[{"head":"数盾安全","relation":"BELONGS_TO","tail":"网络安全"}]},
+  {"id":"gold_048","text":"海纳物流属于智慧物流行业。","entities":[{"name":"海纳物流","type":"Company"},{"name":"智慧物流","type":"Industry"}],"relationships":[{"head":"海纳物流","relation":"BELONGS_TO","tail":"智慧物流"}]},
+  {"id":"gold_049","text":"远景农业属于现代农业行业。","entities":[{"name":"远景农业","type":"Company"},{"name":"现代农业","type":"Industry"}],"relationships":[{"head":"远景农业","relation":"BELONGS_TO","tail":"现代农业"}]},
+  {"id":"gold_050","text":"明德教育属于教育科技行业。","entities":[{"name":"明德教育","type":"Company"},{"name":"教育科技","type":"Industry"}],"relationships":[{"head":"明德教育","relation":"BELONGS_TO","tail":"教育科技"}]}
 ]
