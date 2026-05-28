@@ -33,7 +33,7 @@ docker compose up --build
 - 真实 HTTP 集成测试：`cd backend && uv run pytest tests/test_live_http_e2e.py -q`。
 - 常规本地测试可使用 `GRAPH_BACKEND=memory`；课程验收建议启动 Neo4j 并设置 `GRAPH_BACKEND=neo4j`。
 - `GET /health` 返回 `neo4j=ok` 才表示真实 Neo4j 可用；`neo4j=memory` 只表示内存运行态。
-- LLM 相关接口依赖 `.env` 中的 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`LLM_MODEL`；未配置时返回 `llm_error`，不会使用规则 mock 兜底。
+- LLM 相关接口依赖 `.env` 中的 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`LLM_MODEL`；可选配置 `LLM_FALLBACK_MODELS` 和 `OPENAI_FALLBACK_BASE_URLS` 处理上游短时不可用；未配置基础凭据时返回 `llm_error`，不会使用规则 mock 兜底。
 
 ## 文档
 

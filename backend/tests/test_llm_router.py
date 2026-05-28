@@ -46,6 +46,26 @@ def test_settings_exposes_single_model_and_timeout_config(tmp_path):
     assert settings.llm_timeout_seconds == 120
 
 
+def test_settings_exposes_optional_llm_fallback_routes(tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "OPENAI_API_KEY=shared-key",
+                f"LLM_MODEL={MODEL_NAME}",
+                "LLM_FALLBACK_MODELS=fallback-mini, fallback-large",
+                "OPENAI_FALLBACK_BASE_URLS=https://backup-one.example/v1, https://backup-two.example/v1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    settings = Settings(_env_file=env_path)
+
+    assert settings.llm_fallback_models == "fallback-mini, fallback-large"
+    assert settings.openai_fallback_base_urls == "https://backup-one.example/v1, https://backup-two.example/v1"
+
+
 def test_select_model_profile_uses_single_model_for_structured_tasks(monkeypatch):
     monkeypatch.setattr("app.services.llm_service.settings.llm_model", MODEL_NAME)
 
@@ -324,6 +344,95 @@ def test_http_gateway_retries_transient_transport_errors(monkeypatch):
     assert len(attempts) == 2
 
 
+def test_http_gateway_uses_fallback_model_after_retryable_primary_failure(tmp_path, monkeypatch):
+    attempts = []
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "OPENAI_API_KEY=shared-key",
+                "OPENAI_BASE_URL=https://llm-gateway.example/v1",
+                f"LLM_MODEL={MODEL_NAME}",
+                "LLM_FALLBACK_MODELS=fallback-mini",
+                "LLM_MAX_RETRIES=0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "{\"ok\":true}"}}]}
+
+    def fake_post(url, headers, json, timeout):
+        attempts.append((url, json["model"]))
+        if json["model"] == MODEL_NAME:
+            raise httpx.ConnectError("primary offline")
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.llm_service.settings", Settings(_env_file=env_path))
+    monkeypatch.setattr("app.services.llm_service._LLM_CIRCUIT_BREAKERS", {}, raising=False)
+
+    content = HttpLLMGateway().complete(
+        task=LLMTask.EXTRACTION,
+        messages=[{"role": "user", "content": "输出 JSON"}],
+    )
+
+    assert content == "{\"ok\":true}"
+    assert attempts == [
+        ("https://llm-gateway.example/v1/chat/completions", MODEL_NAME),
+        ("https://llm-gateway.example/v1/chat/completions", "fallback-mini"),
+    ]
+
+
+def test_http_gateway_uses_fallback_base_url_after_retryable_primary_failure(tmp_path, monkeypatch):
+    attempts = []
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "OPENAI_API_KEY=shared-key",
+                "OPENAI_BASE_URL=https://primary.example/v1",
+                f"LLM_MODEL={MODEL_NAME}",
+                "OPENAI_FALLBACK_BASE_URLS=https://backup.example/v1",
+                "LLM_MAX_RETRIES=0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "{\"ok\":true}"}}]}
+
+    def fake_post(url, headers, json, timeout):
+        attempts.append(url)
+        if url.startswith("https://primary.example"):
+            raise httpx.ConnectError("primary offline")
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.llm_service.settings", Settings(_env_file=env_path))
+
+    content = HttpLLMGateway().complete(
+        task=LLMTask.EXTRACTION,
+        messages=[{"role": "user", "content": "输出 JSON"}],
+    )
+
+    assert content == "{\"ok\":true}"
+    assert attempts == [
+        "https://primary.example/v1/chat/completions",
+        "https://backup.example/v1/chat/completions",
+    ]
+
+
 def test_http_gateway_opens_circuit_after_repeated_failures(tmp_path, monkeypatch):
     attempts = []
     current_time = 1_000.0
@@ -560,3 +669,57 @@ def test_http_gateway_stream_retries_connection_before_first_chunk(monkeypatch):
 
     assert chunks == ["正文"]
     assert attempts == ["enter", "enter"]
+
+
+def test_http_gateway_stream_uses_fallback_model_before_first_chunk(tmp_path, monkeypatch):
+    attempts = []
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "OPENAI_API_KEY=shared-key",
+                "OPENAI_BASE_URL=https://llm-gateway.example/v1",
+                f"LLM_MODEL={MODEL_NAME}",
+                "LLM_FALLBACK_MODELS=fallback-mini",
+                "LLM_MAX_RETRIES=0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeStreamResponse:
+        def raise_for_status(self):
+            return None
+
+        def iter_lines(self):
+            yield "data: " + json.dumps({"choices": [{"delta": {"content": "正文"}}]})
+            yield "data: [DONE]"
+
+    class FakeStreamContext:
+        def __init__(self, model):
+            self.model = model
+
+        def __enter__(self):
+            attempts.append(self.model)
+            if self.model == MODEL_NAME:
+                raise httpx.ConnectError("primary offline")
+            return FakeStreamResponse()
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    def fake_stream(method, url, headers, json, timeout):
+        return FakeStreamContext(json["model"])
+
+    monkeypatch.setattr("app.services.llm_service.httpx.stream", fake_stream)
+    monkeypatch.setattr("app.services.llm_service.settings", Settings(_env_file=env_path))
+
+    chunks = list(
+        HttpLLMGateway().stream_complete(
+            task=LLMTask.GRAPH_RAG_STREAM,
+            messages=[{"role": "user", "content": "流式回答"}],
+        )
+    )
+
+    assert chunks == ["正文"]
+    assert attempts == [MODEL_NAME, "fallback-mini"]

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any
 
@@ -30,6 +30,12 @@ class ModelProfile:
     purpose: str
     use_json_output: bool = False
     use_web_search: bool = False
+
+
+@dataclass(frozen=True)
+class LLMRoute:
+    profile: ModelProfile
+    endpoint: str
 
 
 LLM_USER_AGENT = (
@@ -161,37 +167,40 @@ class HttpLLMGateway(LLMGateway):
         if not settings.llm_model:
             raise RuntimeError("LLM_MODEL is required for LLM calls.")
 
-        profile = select_model_profile(task)
-        payload = build_chat_payload(
-            profile,
-            messages,
-            temperature=temperature,
-            top_p=top_p,
-            max_tokens=max_tokens,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            tools=tools,
-            tool_choice=tool_choice,
-        )
-        endpoint = f"{_base_url(profile.provider).rstrip('/')}/chat/completions"
+        routes = _llm_route_candidates(select_model_profile(task))
         _ensure_llm_circuit_closed(task)
-        try:
-            response = _post_chat_completion(endpoint, payload, timeout=_timeout_for_task(task))
-            data = response.json()
-            choices = data.get("choices") or []
-            if not choices:
-                raise RuntimeError("LLM response missing choices.")
-            message = choices[0].get("message") or {}
-            content = message.get("content")
-            if content is None:
-                if message.get("tool_calls"):
-                    raise RuntimeError("LLM response returned tool_calls, but no tool dispatcher is configured.")
-                raise RuntimeError("LLM response missing message content.")
-        except Exception:
-            _record_llm_failure(task)
-            raise
-        _record_llm_success(task)
-        return str(content)
+        for route_index, route in enumerate(routes):
+            payload = build_chat_payload(
+                route.profile,
+                messages,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+                presence_penalty=presence_penalty,
+                frequency_penalty=frequency_penalty,
+                tools=tools,
+                tool_choice=tool_choice,
+            )
+            try:
+                response = _post_chat_completion(route.endpoint, payload, timeout=_timeout_for_task(task))
+                data = response.json()
+                choices = data.get("choices") or []
+                if not choices:
+                    raise RuntimeError("LLM response missing choices.")
+                message = choices[0].get("message") or {}
+                content = message.get("content")
+                if content is None:
+                    if message.get("tool_calls"):
+                        raise RuntimeError("LLM response returned tool_calls, but no tool dispatcher is configured.")
+                    raise RuntimeError("LLM response missing message content.")
+            except Exception as exc:
+                if route_index < len(routes) - 1 and _is_retryable_llm_error(exc):
+                    continue
+                _record_llm_failure(task)
+                raise
+            _record_llm_success(task)
+            return str(content)
+        raise RuntimeError("LLM route loop exited unexpectedly.")
 
     def stream_complete(
         self,
@@ -211,68 +220,98 @@ class HttpLLMGateway(LLMGateway):
         if not settings.llm_model:
             raise RuntimeError("LLM_MODEL is required for LLM calls.")
 
-        profile = select_model_profile(task)
-        payload = build_chat_payload(
-            profile,
-            messages,
-            temperature=temperature,
-            top_p=top_p,
-            max_tokens=max_tokens,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            tools=tools,
-            tool_choice=tool_choice,
-        )
-        payload["stream"] = True
-        endpoint = f"{_base_url(profile.provider).rstrip('/')}/chat/completions"
+        routes = _llm_route_candidates(select_model_profile(task))
         attempts = max(1, int(settings.llm_max_retries) + 1)
         timeout = _timeout_for_task(task)
         _ensure_llm_circuit_closed(task)
-        for attempt_index in range(attempts):
-            yielded_any = False
-            try:
-                with httpx.stream(
-                    "POST",
-                    endpoint,
-                    headers=_llm_headers(),
-                    json=payload,
-                    timeout=timeout,
-                ) as response:
-                    response.raise_for_status()
-                    for line in response.iter_lines():
-                        if not line:
-                            continue
-                        data = line[6:].strip() if line.startswith("data: ") else line.strip()
-                        if data == "[DONE]":
-                            _record_llm_success(task)
-                            return
-                        try:
-                            chunk = json.loads(data)
-                        except json.JSONDecodeError:
-                            continue
-                        choices = chunk.get("choices") or []
-                        if not choices:
-                            continue
-                        delta = choices[0].get("delta", {})
-                        content = delta.get("content")
-                        if content:
-                            yielded_any = True
-                            yield str(content)
-                    _record_llm_success(task)
-                    return
-            except Exception as exc:
-                if yielded_any or attempt_index >= attempts - 1 or not _is_retryable_llm_error(exc):
+        for route_index, route in enumerate(routes):
+            payload = build_chat_payload(
+                route.profile,
+                messages,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+                presence_penalty=presence_penalty,
+                frequency_penalty=frequency_penalty,
+                tools=tools,
+                tool_choice=tool_choice,
+            )
+            payload["stream"] = True
+            for attempt_index in range(attempts):
+                yielded_any = False
+                try:
+                    with httpx.stream(
+                        "POST",
+                        route.endpoint,
+                        headers=_llm_headers(),
+                        json=payload,
+                        timeout=timeout,
+                    ) as response:
+                        response.raise_for_status()
+                        for line in response.iter_lines():
+                            if not line:
+                                continue
+                            data = line[6:].strip() if line.startswith("data: ") else line.strip()
+                            if data == "[DONE]":
+                                _record_llm_success(task)
+                                return
+                            try:
+                                chunk = json.loads(data)
+                            except json.JSONDecodeError:
+                                continue
+                            choices = chunk.get("choices") or []
+                            if not choices:
+                                continue
+                            delta = choices[0].get("delta", {})
+                            content = delta.get("content")
+                            if content:
+                                yielded_any = True
+                                yield str(content)
+                        _record_llm_success(task)
+                        return
+                except Exception as exc:
+                    if yielded_any or not _is_retryable_llm_error(exc):
+                        _record_llm_failure(task)
+                        raise
+                    if attempt_index < attempts - 1:
+                        backoff = max(0.0, float(settings.llm_retry_backoff_seconds)) * (2 ** attempt_index)
+                        if backoff:
+                            time.sleep(backoff)
+                        continue
+                    if route_index < len(routes) - 1:
+                        break
                     _record_llm_failure(task)
                     raise
-                backoff = max(0.0, float(settings.llm_retry_backoff_seconds)) * (2 ** attempt_index)
-                if backoff:
-                    time.sleep(backoff)
 
 
 def _base_url(provider: str) -> str:
     if settings.openai_base_url:
         return settings.openai_base_url
     return "https://api.openai.com/v1"
+
+
+def _llm_route_candidates(profile: ModelProfile) -> list[LLMRoute]:
+    models = _unique_non_empty([profile.model, *_split_csv(settings.llm_fallback_models)])
+    base_urls = _unique_non_empty([_base_url(profile.provider), *_split_csv(settings.openai_fallback_base_urls)])
+    return [
+        LLMRoute(profile=replace(profile, model=model), endpoint=f"{base_url.rstrip('/')}/chat/completions")
+        for base_url in base_urls
+        for model in models
+    ]
+
+
+def _split_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _unique_non_empty(values: list[str]) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value and value not in seen:
+            unique.append(value)
+            seen.add(value)
+    return unique
 
 
 def _llm_headers() -> dict[str, str]:
