@@ -7,6 +7,7 @@ from app.models.api import ExtractRequest, HealthResponse, Text2CypherRequest, T
 from app.services.extraction_service import extract_mock, extract_with_deepseek, judge_extraction_with_deepseek
 from app.services.graph_rag_service import answer_with_graph_context
 from app.services.graph_query_service import company_profile, subgraph
+from app.services.graph_runtime import import_graph_runtime
 from app.services.graph_store import graph_store
 from app.services.market_service import get_kline_mock
 from app.services.metrics_service import default_gold_standard_path, evaluate_gold_standard
@@ -39,7 +40,7 @@ def import_dataset(payload: dict | None = None) -> dict:
     if dataset not in {"sample_graph", "financial_datasets"}:
         raise HTTPException(status_code=400, detail={"error": "invalid_input", "message": f"unsupported dataset: {dataset}"})
 
-    stats = graph_store.import_graph(sample_graph("示例科技"))
+    stats = import_graph_runtime(sample_graph("示例科技"))
     return {
         "import_run_id": "import_sample_graph",
         "nodes_created": stats.nodes_created,
