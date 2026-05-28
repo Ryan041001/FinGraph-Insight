@@ -102,6 +102,32 @@ def extract_with_deepseek(text: str, gateway: LLMGateway) -> dict:
     return _normalize_llm_extraction(text, raw)
 
 
+def refine_extraction_with_deepseek(text: str, payload: dict[str, Any], gateway: LLMGateway) -> dict[str, Any]:
+    content = gateway.complete(
+        task=LLMTask.EXTRACTION,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "你是金融知识图谱抽取结果审查器。请根据原文修正遗漏、实体类型错误、关系方向错误和幻觉关系。"
+                    "严格输出 json，包含 entities、relationships、warnings。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {"text": text, "current_extraction": payload},
+                    ensure_ascii=False,
+                ),
+            },
+        ],
+        temperature=0,
+        max_tokens=2048,
+    )
+    raw = json.loads(content)
+    return _normalize_llm_extraction(text, raw)
+
+
 def judge_extraction_with_deepseek(payload: dict[str, Any], gateway: LLMGateway) -> dict[str, Any]:
     content = gateway.complete(
         task=LLMTask.JUDGE,

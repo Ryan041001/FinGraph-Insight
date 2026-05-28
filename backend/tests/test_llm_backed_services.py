@@ -1,4 +1,8 @@
-from app.services.extraction_service import judge_extraction_with_deepseek, extract_with_deepseek
+from app.services.extraction_service import (
+    judge_extraction_with_deepseek,
+    extract_with_deepseek,
+    refine_extraction_with_deepseek,
+)
 from app.services.graph_rag_service import answer_with_deepseek_graph_context
 from app.services.mock_data import sample_graph
 from app.services.text2cypher_service import generate_cypher_with_deepseek
@@ -20,6 +24,23 @@ class FakeGateway:
             }
         )
         return self.content
+
+
+class SequenceGateway:
+    def __init__(self, contents: list[str]) -> None:
+        self.contents = contents
+        self.calls = []
+
+    def complete(self, *, task, messages, temperature=0.2, max_tokens=None):
+        self.calls.append(
+            {
+                "task": task,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+        )
+        return self.contents.pop(0)
 
 
 def test_extract_with_deepseek_parses_structured_json():
@@ -79,6 +100,46 @@ def test_judge_extraction_with_deepseek_updates_confidence_and_status():
     assert gateway.calls[0]["task"] == "judge"
 
 
+def test_refine_extraction_with_deepseek_normalizes_refined_payload():
+    initial_payload = {
+        "document": {"content_hash": "doc_1"},
+        "entities": [
+            {"temp_id": "e1", "name": "星河数据", "type": "Company"},
+        ],
+        "relationships": [],
+        "warnings": ["missing_investor"],
+    }
+    gateway = FakeGateway(
+        """
+        {
+          "entities": [
+            {"name": "星河数据", "type": "Company", "evidence": "星河数据完成B轮融资"},
+            {"name": "红杉资本", "type": "Institution", "evidence": "红杉资本领投"},
+            {"name": "B轮融资", "type": "Event", "evidence": "B轮融资"}
+          ],
+          "relationships": [
+            {
+              "head": "红杉资本",
+              "relation": "INVESTED_IN",
+              "tail": "B轮融资",
+              "attributes": {"role": "领投"},
+              "evidence": "星河数据完成B轮融资，红杉资本领投。",
+              "confidence": 0.9
+            }
+          ],
+          "warnings": []
+        }
+        """
+    )
+
+    refined = refine_extraction_with_deepseek("星河数据完成B轮融资，红杉资本领投。", initial_payload, gateway)
+
+    assert len(refined["entities"]) == 3
+    assert refined["relationships"][0]["relation"] == "INVESTED_IN"
+    assert refined["relationships"][0]["status"] == "confirmed"
+    assert gateway.calls[0]["task"] == "extraction"
+
+
 def test_generate_cypher_with_deepseek_sanitizes_model_output():
     gateway = FakeGateway('{"cypher": "MATCH (c:Company) RETURN c"}')
 
@@ -102,6 +163,36 @@ def test_extract_route_uses_configured_llm_when_enabled(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["entities"][0]["name"] == "天河科技"
+
+
+def test_extract_route_applies_self_refine_when_enabled(monkeypatch):
+    gateway = SequenceGateway(
+        [
+            '{"entities":[{"name":"星河数据","type":"Company","evidence":"星河数据完成融资"}],'
+            '"relationships":[],"warnings":["missing_investor"]}',
+            '{"entities":[{"name":"星河数据","type":"Company","evidence":"星河数据完成融资"},'
+            '{"name":"红杉资本","type":"Institution","evidence":"红杉资本领投"}],'
+            '"relationships":[{"head":"红杉资本","relation":"INVESTED_IN","tail":"星河数据",'
+            '"evidence":"红杉资本领投星河数据融资","confidence":0.91}],"warnings":[]}',
+        ]
+    )
+
+    monkeypatch.setattr("app.main.settings.llm_enabled", True)
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: gateway)
+
+    response = client.post(
+        "/extract",
+        json={
+            "text": "星河数据完成融资，红杉资本领投。",
+            "options": {"self_refine": True, "judge": False},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(gateway.calls) == 2
+    assert payload["relationships"][0]["relation"] == "INVESTED_IN"
+    assert payload["warnings"] == []
 
 
 def test_text2cypher_route_uses_configured_llm_when_enabled(monkeypatch):

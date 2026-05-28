@@ -8,7 +8,12 @@ from fastapi.responses import JSONResponse
 from app.config import settings
 from app.data.financial_dataset_loader import load_financial_dataset_directory
 from app.models.api import DocumentIndexRequest, ExtractRequest, HealthResponse, Text2CypherRequest, Text2CypherSafety
-from app.services.extraction_service import extract_mock, extract_with_deepseek, judge_extraction_with_deepseek
+from app.services.extraction_service import (
+    extract_mock,
+    extract_with_deepseek,
+    judge_extraction_with_deepseek,
+    refine_extraction_with_deepseek,
+)
 from app.services.graph_rag_service import answer_with_deepseek_graph_context, answer_with_hybrid_context
 from app.services.graph_query_service import company_profile, paths, subgraph
 from app.services.graph_runtime import import_extraction_payload_runtime, import_graph_runtime
@@ -90,6 +95,8 @@ def extract(request: ExtractRequest) -> dict:
         try:
             gateway = HttpLLMGateway()
             payload = extract_with_deepseek(request.text, gateway)
+            if request.options.self_refine:
+                payload = refine_extraction_with_deepseek(request.text, payload, gateway)
             if request.options.judge:
                 payload = judge_extraction_with_deepseek(payload, gateway)
             return payload
