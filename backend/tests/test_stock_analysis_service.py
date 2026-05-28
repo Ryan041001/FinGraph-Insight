@@ -13,6 +13,11 @@ class FakeAnalysisGateway:
         return '{"summary":"需要关注诉讼风险。","opportunity_factors":[],"risk_factors":[{"title":"诉讼风险","reason":"消息面出现诉讼","evidence_ids":["rel_1"],"severity":"medium"}],"graph_insights":[{"title":"图谱路径","path":"a->b","evidence_ids":["rel_1"]}],"confidence":0.81,"missing_data":[]}'
 
 
+class IncompleteAnalysisGateway:
+    def complete(self, *, task, messages, temperature=0.2, max_tokens=None):
+        return '{"summary":"模型只返回了摘要。"}'
+
+
 def test_build_stock_analysis_binds_graph_evidence_and_disclaimer():
     graph_store.clear()
     graph_store.import_graph(
@@ -76,4 +81,18 @@ def test_build_stock_analysis_with_llm_overrides_analysis_block():
 
     assert response["analysis"]["summary"] == "需要关注诉讼风险。"
     assert response["analysis"]["risk_factors"][0]["title"] == "诉讼风险"
+    assert response["analysis"]["disclaimer"] == "本结果仅用于课程项目演示和研究辅助，不构成投资建议。"
+
+
+def test_build_stock_analysis_with_llm_fills_missing_analysis_fields():
+    response = build_stock_analysis_with_llm(
+        {"stock_code": "600000", "company_name": "浦发银行"},
+        gateway=IncompleteAnalysisGateway(),
+    )
+
+    assert response["analysis"]["summary"] == "模型只返回了摘要。"
+    assert response["analysis"]["opportunity_factors"] == []
+    assert response["analysis"]["risk_factors"] == []
+    assert isinstance(response["analysis"]["graph_insights"], list)
+    assert isinstance(response["analysis"]["missing_data"], list)
     assert response["analysis"]["disclaimer"] == "本结果仅用于课程项目演示和研究辅助，不构成投资建议。"

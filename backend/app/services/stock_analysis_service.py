@@ -69,9 +69,35 @@ def summarize_stock_analysis_with_llm(base: dict[str, Any], gateway: LLMGateway)
         temperature=0.1,
         max_tokens=2048,
     )
-    analysis = parse_llm_json_object(content)
-    analysis["disclaimer"] = DISCLAIMER
+    analysis = _normalize_llm_analysis(base["analysis"], parse_llm_json_object(content))
     return {**base, "analysis": analysis}
+
+
+def _normalize_llm_analysis(default_analysis: dict[str, Any], raw: dict[str, Any]) -> dict[str, Any]:
+    analysis = {
+        "summary": str(default_analysis.get("summary", "")),
+        "opportunity_factors": list(default_analysis.get("opportunity_factors", [])),
+        "risk_factors": list(default_analysis.get("risk_factors", [])),
+        "graph_insights": list(default_analysis.get("graph_insights", [])),
+        "confidence": float(default_analysis.get("confidence", 0.4)),
+        "missing_data": list(default_analysis.get("missing_data", [])),
+        "disclaimer": DISCLAIMER,
+    }
+
+    summary = raw.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        analysis["summary"] = summary.strip()
+
+    for field in ("opportunity_factors", "risk_factors", "graph_insights", "missing_data"):
+        value = raw.get(field)
+        if isinstance(value, list):
+            analysis[field] = value
+
+    confidence = raw.get("confidence")
+    if isinstance(confidence, int | float):
+        analysis["confidence"] = max(0.0, min(1.0, float(confidence)))
+
+    return analysis
 
 
 def _company_industry(graph: GraphPayload) -> str:

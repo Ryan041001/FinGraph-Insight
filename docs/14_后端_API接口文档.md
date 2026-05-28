@@ -39,6 +39,8 @@ MARKET_KLINE_CACHE_DIR=.cache/kline
 
 说明：后端默认使用同一个 `LLM_MODEL` 完成抽取、裁判、Text2Cypher、GraphRAG、股票研判和新闻补充；新闻补充任务只是在同一模型调用中额外附带 web search tool。可选配置 `LLM_FALLBACK_MODELS` 与 `OPENAI_FALLBACK_BASE_URLS`，当主模型或主网关出现连接错误、超时、429 或 5xx 时按候选路由降级重试。LLM 请求会附带浏览器风格 `User-Agent` 和 `Accept: application/json`；非流式调用对连接错误、超时、429 和 5xx 做有限重试，流式调用在首包前失败时也会重试；Text2Cypher、新闻和流式任务可单独配置超时；连续失败达到阈值后会短时熔断，避免每次请求都等待上游超时。
 
+LLM JSON 响应会进行对象解析和关键字段类型校验。字段缺失或类型不符合预期时按 `llm_error` 返回，避免空答案、错误列表类型或缺失 Cypher 被误判为成功。
+
 AI HTML 输出约束：
 
 - 普通回答仍优先使用 Markdown。

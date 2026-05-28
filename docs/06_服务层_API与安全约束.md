@@ -314,3 +314,4 @@ AKSHARE_UPDATE_CRON=0 */6 * * *
 - `/qa/text2cypher` 拒绝 `DELETE`、`SET`、`MERGE`。
 - `/jobs/akshare/run` 能手动触发更新并返回日志。
 - `/market/kline/{stock_code}` 成功时返回 `data_source=yfinance`、`data_source=yahoo_chart` 或 `data_source=akshare`；同参请求在 `MARKET_KLINE_CACHE_TTL_SECONDS` 内返回 `cached=true`；配置 `MARKET_KLINE_CACHE_DIR` 后会在进程重启后继续复用同参缓存；缓存过期后如果外部源全失败，会返回最近一次真实缓存并标记 `cache_status=stale_if_error`；没有可用真实缓存时返回 `market_data_error`，不返回 mock K 线。
+- LLM JSON 返回会先做对象解析，再对关键字段做类型校验；例如抽取要求 `entities`/`relationships` 为数组，Text2Cypher 要求 `cypher` 为非空字符串，新闻补充要求 `events` 为数组，避免把格式漂移误当成成功结果。

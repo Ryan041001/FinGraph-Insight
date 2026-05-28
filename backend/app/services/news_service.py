@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.llm_service import LLMGateway, LLMTask
-from app.services.llm_json import parse_llm_json_object
+from app.services.llm_json import parse_llm_json_object, require_llm_json_list
 
 
 def search_news_events(company_name: str, gateway: LLMGateway) -> list[dict[str, Any]]:
@@ -25,4 +25,8 @@ def search_news_events(company_name: str, gateway: LLMGateway) -> list[dict[str,
         max_tokens=2048,
     )
     payload = parse_llm_json_object(content)
-    return list(payload.get("events", []))
+    events = require_llm_json_list(payload, "events")
+    for event in events:
+        if not isinstance(event, dict):
+            raise ValueError("LLM output field 'events' must contain objects.")
+    return events

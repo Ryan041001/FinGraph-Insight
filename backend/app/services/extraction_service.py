@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from app.services.llm_service import LLMGateway, LLMTask
-from app.services.llm_json import parse_llm_json_object
+from app.services.llm_json import parse_llm_json_object, require_llm_json_list
 from app.services.graph_store import node_id
 from app.services.entity_resolution_service import EntityResolver
 
@@ -145,7 +145,8 @@ def judge_extraction_with_llm(payload: dict[str, Any], gateway: LLMGateway) -> d
     raw = parse_llm_json_object(content)
     judgements = {
         str(item.get("temp_id")): item
-        for item in raw.get("judgements", [])
+        for item in require_llm_json_list(raw, "judgements")
+        if isinstance(item, dict)
     }
     judged = {
         **payload,
@@ -169,8 +170,11 @@ def _normalize_llm_extraction(text: str, raw: dict[str, Any]) -> dict:
     content_hash = hashlib.sha1(cleaned_text.encode("utf-8")).hexdigest()[:16]
     temp_by_name: dict[str, str] = {}
     entities: list[dict[str, Any]] = []
+    raw_entities = require_llm_json_list(raw, "entities")
 
-    for index, entity in enumerate(raw.get("entities", []), start=1):
+    for index, entity in enumerate(raw_entities, start=1):
+        if not isinstance(entity, dict):
+            raise ValueError("LLM output field 'entities' must contain objects.")
         name = str(entity.get("name", "")).strip()
         entity_type = str(entity.get("type", "Company")).strip()
         if not name:
@@ -196,7 +200,10 @@ def _normalize_llm_extraction(text: str, raw: dict[str, Any]) -> dict:
         )
 
     relationships: list[dict[str, Any]] = []
-    for index, relationship in enumerate(raw.get("relationships", []), start=1):
+    raw_relationships = require_llm_json_list(raw, "relationships")
+    for index, relationship in enumerate(raw_relationships, start=1):
+        if not isinstance(relationship, dict):
+            raise ValueError("LLM output field 'relationships' must contain objects.")
         confidence = float(relationship.get("confidence", 0.8))
         relationships.append(
             {
@@ -211,11 +218,15 @@ def _normalize_llm_extraction(text: str, raw: dict[str, Any]) -> dict:
             }
         )
 
+    warnings = raw.get("warnings", [])
+    if not isinstance(warnings, list):
+        raise ValueError("LLM output field 'warnings' must be a list.")
+
     return {
         "document": {"title": None, "content_hash": content_hash},
         "entities": entities,
         "relationships": relationships,
-        "warnings": raw.get("warnings", []),
+        "warnings": warnings,
     }
 
 

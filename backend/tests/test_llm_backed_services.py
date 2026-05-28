@@ -1,3 +1,5 @@
+import pytest
+
 from app.services.extraction_service import (
     judge_extraction_with_llm,
     extract_with_llm,
@@ -134,6 +136,13 @@ def test_extract_with_llm_recovers_json_from_fenced_response():
     assert payload["relationships"] == []
 
 
+def test_extract_with_llm_rejects_non_list_entities():
+    gateway = FakeGateway('{"entities":{"name":"星河数据"},"relationships":[],"warnings":[]}')
+
+    with pytest.raises(ValueError, match="entities"):
+        extract_with_llm("星河数据完成B轮融资。", gateway)
+
+
 def test_judge_extraction_with_llm_updates_confidence_and_status():
     payload = {
         "document": {"content_hash": "doc_1"},
@@ -220,6 +229,13 @@ def test_generate_cypher_with_llm_recovers_json_from_prefixed_response():
     assert "limit_added" in rules
 
 
+def test_generate_cypher_with_llm_requires_cypher_string():
+    gateway = FakeGateway('{"query":"MATCH (c:Company) RETURN c"}')
+
+    with pytest.raises(ValueError, match="cypher"):
+        generate_cypher_with_llm("查询所有公司", gateway)
+
+
 def test_extract_route_uses_configured_llm_when_enabled(monkeypatch):
     gateway = FakeGateway(
         '{"entities":[{"name":"天河科技","type":"Company","evidence":"天河科技完成A轮融资"}],'
@@ -228,7 +244,7 @@ def test_extract_route_uses_configured_llm_when_enabled(monkeypatch):
 
     monkeypatch.setattr("app.main.HttpLLMGateway", lambda: gateway)
 
-    response = client.post("/extract", json={"text": "天河科技完成A轮融资。"})
+    response = client.post("/extract", json={"text": "天河科技完成A轮融资。", "options": {"judge": False}})
 
     assert response.status_code == 200
     assert response.json()["entities"][0]["name"] == "天河科技"
@@ -286,3 +302,11 @@ def test_answer_with_llm_graph_context_preserves_graph_and_citations():
     assert response["supporting_graph"]["nodes"]
     assert response["citations"]
     assert gateway.calls[0]["task"] == "graph_rag"
+
+
+def test_answer_with_llm_graph_context_requires_answer_string():
+    gateway = FakeGateway('{"result":"根据图谱回答"}')
+    graph = funding_graph("星河数据")
+
+    with pytest.raises(ValueError, match="answer"):
+        answer_with_llm_graph_context("星河数据融资情况？", graph, gateway)

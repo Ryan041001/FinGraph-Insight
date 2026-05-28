@@ -2,7 +2,7 @@ import re
 
 from app.models.api import Text2CypherResponse, Text2CypherSafety
 from app.services.llm_service import LLMGateway, LLMTask
-from app.services.llm_json import parse_llm_json_object
+from app.services.llm_json import parse_llm_json_object, require_llm_json_string
 from app.models.api import GraphPayload
 
 
@@ -113,7 +113,7 @@ def generate_cypher_with_llm(question: str, gateway: LLMGateway) -> tuple[str, l
         max_tokens=1024,
     )
     payload = parse_llm_json_object(content)
-    return sanitize_readonly_cypher(str(payload.get("cypher", "")))
+    return sanitize_readonly_cypher(require_llm_json_string(payload, "cypher"))
 
 
 def _strip_comments(cypher: str) -> str:

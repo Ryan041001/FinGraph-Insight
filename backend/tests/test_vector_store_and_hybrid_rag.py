@@ -1,3 +1,5 @@
+import pytest
+
 from app.models.api import GraphEdge, GraphNode, GraphPayload
 from app.services.graph_rag_service import answer_with_hybrid_context
 from app.services.hybrid_rag_service import answer_with_hybrid_rag
@@ -141,6 +143,13 @@ def test_hybrid_rag_service_marks_successful_llm_answer_source():
     assert response["retrieval"]["llm_used"] is True
     assert response["retrieval"]["answer_source"] == "llm"
     assert len(gateway.calls) == 1
+
+
+def test_hybrid_rag_service_rejects_missing_llm_answer():
+    gateway = FakeGateway('{"result":"缺少 answer 字段"}')
+
+    with pytest.raises(ValueError, match="answer"):
+        answer_with_hybrid_rag("星河数据的收入模式是什么？", gateway=gateway)
 
 
 def test_graph_rag_route_uses_indexed_document_context(monkeypatch):

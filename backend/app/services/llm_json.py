@@ -31,6 +31,23 @@ def parse_llm_json_object(content: str) -> dict[str, Any]:
     raise ValueError(f"LLM output is not a valid JSON object: {preview}; errors={errors[:2]}")
 
 
+def require_llm_json_list(payload: dict[str, Any], field: str) -> list[Any]:
+    value = payload.get(field)
+    if not isinstance(value, list):
+        raise ValueError(f"LLM output field '{field}' must be a list.")
+    return value
+
+
+def require_llm_json_string(payload: dict[str, Any], field: str, *, allow_blank: bool = False) -> str:
+    value = payload.get(field)
+    if not isinstance(value, str):
+        raise ValueError(f"LLM output field '{field}' must be a string.")
+    normalized = value.strip()
+    if not allow_blank and not normalized:
+        raise ValueError(f"LLM output field '{field}' must be a non-empty string.")
+    return normalized
+
+
 def _extract_first_json_value(text: str) -> str | None:
     decoder = json.JSONDecoder()
     for index, char in enumerate(text):

@@ -1,3 +1,5 @@
+import pytest
+
 from app.services.news_service import search_news_events
 
 
@@ -34,3 +36,10 @@ def test_search_news_events_parses_structured_events():
     assert events[0]["event_type"] == "litigation"
     assert events[0]["source_url"] == "https://example.com/news"
     assert gateway.calls[0]["task"] == "news_search"
+
+
+def test_search_news_events_rejects_non_list_events():
+    gateway = FakeGateway('{"events":{"title":"示例公司涉及诉讼"}}')
+
+    with pytest.raises(ValueError, match="events"):
+        search_news_events("示例公司", gateway)
