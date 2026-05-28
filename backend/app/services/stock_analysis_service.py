@@ -3,17 +3,23 @@ from __future__ import annotations
 from typing import Any
 
 from app.models.api import GraphPayload
+from app.services.grok_news_service import search_news_events_with_grok
 from app.services.graph_store import graph_store
+from app.services.llm_service import LLMGateway
 
 
 DISCLAIMER = "本结果仅用于课程项目演示和研究辅助，不构成投资建议。"
 
 
-def build_stock_analysis(payload: dict[str, Any]) -> dict[str, Any]:
+def build_stock_analysis(payload: dict[str, Any], news_gateway: LLMGateway | None = None) -> dict[str, Any]:
     stock_code = str(payload.get("stock_code") or "")
     company_name = str(payload.get("company_name") or stock_code or "未知上市公司")
     depth = int(payload.get("depth") or 2)
     graph = graph_store.subgraph(company_name, depth=depth)
+
+    news_events = _events_from_graph(graph)
+    if payload.get("refresh_news") and news_gateway is not None:
+        news_events = [*search_news_events_with_grok(company_name, news_gateway), *news_events]
 
     return {
         "target": {
@@ -26,7 +32,7 @@ def build_stock_analysis(payload: dict[str, Any]) -> dict[str, Any]:
             "industry": _company_industry(graph),
             "data_time": "local-cache",
         },
-        "news_events": _events_from_graph(graph),
+        "news_events": news_events,
         "subgraph": graph.model_dump(),
         "analysis": {
             "summary": f"{company_name}当前研判基于图谱关系、事件和证据链生成，需结合外部数据复核。",

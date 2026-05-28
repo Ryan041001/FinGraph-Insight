@@ -187,6 +187,8 @@ def evaluate_metrics() -> dict:
 
 @app.post("/analysis/stock")
 def stock_analysis(payload: dict) -> dict:
+    if settings.llm_enabled and payload.get("refresh_news"):
+        return build_stock_analysis(payload, news_gateway=HttpLLMGateway())
     return build_stock_analysis(payload)
 
 
