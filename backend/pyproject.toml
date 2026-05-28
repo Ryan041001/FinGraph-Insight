@@ -1,0 +1,24 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "FinGraph Insight FastAPI backend"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "akshare>=1.13",
+    "apscheduler>=3.10",
+    "beautifulsoup4>=4.12",
+    "fastapi>=0.110",
+    "httpx>=0.26",
+    "neo4j>=5.18",
+    "openpyxl>=3.1",
+    "pandas>=2.2",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "uvicorn[standard]>=0.27",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4",
+]

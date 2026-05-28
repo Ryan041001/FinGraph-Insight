@@ -1,13 +1,14 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.models.api import ExtractRequest, HealthResponse, Text2CypherRequest
 from app.services.extraction_service import extract_mock
-from app.services.graph_query_service import company_profile
+from app.services.graph_query_service import company_profile, subgraph
+from app.services.graph_store import graph_store
 from app.services.market_service import get_kline_mock
 from app.services.mock_data import sample_graph
-from app.services.scheduler_service import run_akshare_update_mock
+from app.services.scheduler_service import get_job_run, list_job_runs, run_akshare_update_mock
 from app.services.text2cypher_service import answer_text2cypher
 
 
@@ -24,17 +25,22 @@ app.add_middleware(
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    return HealthResponse(status="ok", neo4j="mock", scheduler="mock")
+    return HealthResponse(status="ok", neo4j=graph_store.health_status(), scheduler="running")
 
 
 @app.post("/datasets/import")
-def import_dataset() -> dict:
+def import_dataset(payload: dict | None = None) -> dict:
+    dataset = (payload or {}).get("dataset", "sample_graph")
+    if dataset not in {"sample_graph", "financial_datasets"}:
+        raise HTTPException(status_code=400, detail={"error": "invalid_input", "message": f"unsupported dataset: {dataset}"})
+
+    stats = graph_store.import_graph(sample_graph("示例科技"))
     return {
-        "import_run_id": "import_mock",
-        "nodes_created": 3,
-        "relationships_created": 2,
-        "nodes_skipped": 0,
-        "relationships_skipped": 0,
+        "import_run_id": "import_sample_graph",
+        "nodes_created": stats.nodes_created,
+        "relationships_created": stats.relationships_created,
+        "nodes_skipped": stats.nodes_matched,
+        "relationships_skipped": stats.relationships_skipped,
         "status": "success",
     }
 
@@ -45,12 +51,13 @@ def extract(request: ExtractRequest) -> dict:
 
 
 @app.post("/graph/import")
-def import_graph() -> dict:
+def import_graph(payload: dict) -> dict:
+    stats = graph_store.import_extraction_payload(payload)
     return {
-        "nodes_created": 2,
-        "nodes_matched": 1,
-        "relationships_created": 1,
-        "relationships_skipped": 0,
+        "nodes_created": stats.nodes_created,
+        "nodes_matched": stats.nodes_matched,
+        "relationships_created": stats.relationships_created,
+        "relationships_skipped": stats.relationships_skipped,
         "status": "success",
     }
 
@@ -62,7 +69,7 @@ def get_company_profile(name: str, depth: int = 2, include_pending: bool = False
 
 @app.get("/graph/subgraph")
 def get_subgraph(entity: str, depth: int = 2, limit: int = 80) -> dict:
-    return sample_graph(entity).model_dump()
+    return subgraph(entity, depth=depth, limit=limit)
 
 
 @app.get("/graph/path")
@@ -74,7 +81,7 @@ def get_path(source: str, target: str, max_depth: int = 4) -> dict:
 @app.post("/qa/graph-rag")
 def graph_rag(payload: dict) -> dict:
     company_name = extract_company_name_from_question(payload.get("question"))
-    graph = sample_graph(company_name)
+    graph = graph_store.subgraph(company_name)
     return {
         "answer": f"{company_name}与红杉资本存在B轮融资相关路径，建议重点复核资金来源、轮次信息和后续关联方变化。",
         "entities": [company_name, "红杉资本", "B轮融资事件"],
@@ -117,7 +124,7 @@ def text2cypher(request: Text2CypherRequest):
 
 @app.get("/jobs")
 def list_jobs() -> dict:
-    return {"jobs": []}
+    return {"jobs": [job.model_dump() for job in list_job_runs()]}
 
 
 @app.post("/jobs/akshare/run")
@@ -127,9 +134,10 @@ def run_akshare_job() -> dict:
 
 @app.get("/jobs/{job_run_id}")
 def get_job(job_run_id: str) -> dict:
-    job = run_akshare_update_mock().model_dump()
-    job["job_run_id"] = job_run_id
-    return job
+    job = get_job_run(job_run_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail={"error": "scheduler_error", "message": "job run not found"})
+    return job.model_dump()
 
 
 @app.get("/metrics/extraction")

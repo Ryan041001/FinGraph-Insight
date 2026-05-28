@@ -1,22 +1,9 @@
-from app.services.mock_data import sample_graph
+from app.services.graph_store import graph_store
 
 
 def company_profile(name: str, depth: int = 2) -> dict:
-    graph = sample_graph(name)
-    return {
-        "company": {
-            "id": "company_demo",
-            "name": name,
-            "industry": "金融科技",
-            "legal_representative": "张三",
-        },
-        "profile": {
-            "shareholders": [],
-            "investors": ["红杉资本"],
-            "events": ["B轮融资事件"],
-            "hidden_relations": [],
-            "risk_flags": [],
-            "depth": depth,
-        },
-        "graph": graph.model_dump(),
-    }
+    return graph_store.company_profile(name, depth=depth)
+
+
+def subgraph(entity: str, depth: int = 2, limit: int = 80) -> dict:
+    return graph_store.subgraph(entity, depth=depth, limit=limit).model_dump()
