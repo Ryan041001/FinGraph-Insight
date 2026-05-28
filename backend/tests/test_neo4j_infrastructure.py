@@ -1,7 +1,14 @@
 import pytest
 
 from app.models.api import GraphEdge, GraphNode, GraphPayload
-from app.neo4j.connection import Neo4jConnectionConfig, check_neo4j_health, create_neo4j_driver
+from app.neo4j.connection import (
+    Neo4jConnectionConfig,
+    check_neo4j_health,
+    close_neo4j_driver,
+    create_neo4j_driver,
+    get_neo4j_driver,
+    reset_neo4j_driver_cache,
+)
 from app.neo4j.reader import Neo4jGraphReader, execute_readonly_cypher
 from app.neo4j.writer import Neo4jGraphWriter, build_merge_node_query, build_merge_relationship_query
 
@@ -323,3 +330,40 @@ def test_execute_readonly_cypher_returns_table_and_graph_payload():
     assert result["table"]["columns"] == ["company", "node"]
     assert result["table"]["rows"][0][0] == "邦盛科技"
     assert result["graph"]["nodes"][0]["label"] == "邦盛科技"
+
+
+def test_get_neo4j_driver_returns_cached_singleton(monkeypatch):
+    reset_neo4j_driver_cache()
+    call_count = {"value": 0}
+
+    def fake_create(config=None):
+        call_count["value"] += 1
+        return object()
+
+    monkeypatch.setattr("app.neo4j.connection.create_neo4j_driver", fake_create)
+
+    first = get_neo4j_driver()
+    second = get_neo4j_driver()
+
+    assert first is second
+    assert call_count["value"] == 1
+
+
+def test_close_neo4j_driver_closes_and_clears_cache(monkeypatch):
+    reset_neo4j_driver_cache()
+    closed = {"value": False}
+
+    class FakeDriverWithClose:
+        def close(self):
+            closed["value"] = True
+
+    monkeypatch.setattr("app.neo4j.connection.create_neo4j_driver", lambda config=None: FakeDriverWithClose())
+
+    driver = get_neo4j_driver()
+    assert isinstance(driver, FakeDriverWithClose)
+    close_neo4j_driver()
+
+    assert closed["value"] is True
+
+    next_driver = get_neo4j_driver()
+    assert next_driver is not driver

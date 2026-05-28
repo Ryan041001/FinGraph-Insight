@@ -1,4 +1,6 @@
+from collections import OrderedDict
 from collections.abc import Callable
+from threading import RLock
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -12,8 +14,18 @@ from app.services.graph_store import ImportStats
 from app.services.llm_service import HttpLLMGateway
 from app.services.pipeline_service import run_extraction_pipeline
 
-_job_runs: dict[str, JobRun] = {}
+_job_runs: "OrderedDict[str, JobRun]" = OrderedDict()
+_job_runs_lock = RLock()
 _scheduler: BackgroundScheduler | None = None
+
+
+def _record_job_run(job: JobRun) -> None:
+    max_size = max(1, settings.job_run_history_max_size)
+    with _job_runs_lock:
+        _job_runs[job.job_run_id] = job
+        _job_runs.move_to_end(job.job_run_id)
+        while len(_job_runs) > max_size:
+            _job_runs.popitem(last=False)
 
 
 def run_akshare_update(
@@ -28,16 +40,18 @@ def run_akshare_update(
         judge=judge or _default_judge,
         importer=importer,
     )
-    _job_runs[job.job_run_id] = job
+    _record_job_run(job)
     return job
 
 
 def list_job_runs() -> list[JobRun]:
-    return list(_job_runs.values())
+    with _job_runs_lock:
+        return list(_job_runs.values())
 
 
 def get_job_run(job_run_id: str) -> JobRun | None:
-    return _job_runs.get(job_run_id)
+    with _job_runs_lock:
+        return _job_runs.get(job_run_id)
 
 
 def build_akshare_scheduler(

@@ -4,7 +4,7 @@ from typing import Any
 
 from app.config import settings
 from app.models.api import GraphPayload
-from app.neo4j.connection import create_neo4j_driver
+from app.neo4j.connection import get_neo4j_driver
 from app.neo4j.writer import Neo4jGraphWriter
 from app.services.graph_store import InMemoryGraphStore, graph_store
 
@@ -16,7 +16,7 @@ def import_graph_runtime(
 ) -> Any:
     stats = memory_store.import_graph(graph)
     if settings.graph_backend == "neo4j":
-        writer = neo4j_writer or Neo4jGraphWriter(create_neo4j_driver())
+        writer = neo4j_writer or Neo4jGraphWriter(get_neo4j_driver())
         return writer.write_graph(graph)
     return stats
 

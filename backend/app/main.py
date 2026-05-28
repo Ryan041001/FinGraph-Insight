@@ -1,9 +1,10 @@
 from pathlib import Path
 from contextlib import asynccontextmanager
 import json
+from collections import OrderedDict
 from collections.abc import Iterable
 from queue import Empty, Queue
-from threading import Thread
+from threading import RLock, Thread
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,7 +14,7 @@ from fastapi.responses import StreamingResponse
 from app.config import settings
 from app.data.financial_dataset_loader import load_financial_dataset_directory
 from app.models.api import DocumentIndexRequest, ExtractRequest, HealthResponse, Text2CypherRequest, Text2CypherSafety
-from app.neo4j.connection import check_neo4j_health, create_neo4j_driver
+from app.neo4j.connection import check_neo4j_health, close_neo4j_driver, get_neo4j_driver
 from app.neo4j.reader import execute_readonly_cypher
 from app.services.extraction_service import (
     extract_with_llm,
@@ -41,7 +42,11 @@ from app.services.stock_analysis_service import (
     summarize_stock_analysis_with_llm,
 )
 from app.services.llm_service import HttpLLMGateway, LLMTask
-from app.services.text2cypher_service import answer_text2cypher, generate_cypher_with_llm
+from app.services.text2cypher_service import (
+    answer_text2cypher,
+    generate_cypher_with_llm,
+    is_write_intent,
+)
 from app.services.vector_store import vector_store
 
 
@@ -52,20 +57,48 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         shutdown_scheduler()
+        close_neo4j_driver()
 
 
 app = FastAPI(title="Financial KG API", version="0.1.0", lifespan=lifespan)
 
+
+def _cors_allow_origins() -> list[str]:
+    raw = settings.cors_allow_origins.strip()
+    if not raw or raw == "*":
+        return ["*"]
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+_cors_origins = _cors_allow_origins()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_origins != ["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
-_stock_analysis_cache: dict[str, dict] = {}
+_stock_analysis_cache: "OrderedDict[str, dict]" = OrderedDict()
+_stock_analysis_cache_lock = RLock()
 SSE_HEARTBEAT_SECONDS = 8.0
+
+
+def _record_stock_analysis(stock_code: str, payload: dict) -> None:
+    max_size = max(1, settings.stock_analysis_cache_max_size)
+    with _stock_analysis_cache_lock:
+        _stock_analysis_cache[stock_code] = payload
+        _stock_analysis_cache.move_to_end(stock_code)
+        while len(_stock_analysis_cache) > max_size:
+            _stock_analysis_cache.popitem(last=False)
+
+
+def _get_cached_stock_analysis(stock_code: str) -> dict | None:
+    with _stock_analysis_cache_lock:
+        payload = _stock_analysis_cache.get(stock_code)
+        if payload is not None:
+            _stock_analysis_cache.move_to_end(stock_code)
+        return payload
 
 
 def _raise_llm_error(exc: Exception) -> None:
@@ -87,16 +120,11 @@ def _graph_health_status() -> str:
     if settings.graph_backend.lower() != "neo4j":
         return graph_store.health_status()
 
-    driver = None
     try:
-        driver = create_neo4j_driver()
-        return check_neo4j_health(driver)
+        driver = get_neo4j_driver()
     except Exception:
         return "unavailable"
-    finally:
-        close = getattr(driver, "close", None)
-        if callable(close):
-            close()
+    return check_neo4j_health(driver)
 
 
 @app.post("/datasets/import")
@@ -342,22 +370,20 @@ def extract_company_name_from_question(question: object) -> str:
 @app.post("/qa/text2cypher")
 def text2cypher(request: Text2CypherRequest):
     try:
-        fallback = answer_text2cypher(request.question)
-        if fallback.safety.passed:
-            cypher, rules = generate_cypher_with_llm(request.question, HttpLLMGateway())
-            if settings.graph_backend.lower() == "neo4j":
-                result = execute_readonly_cypher(create_neo4j_driver(), cypher)
-                return {
-                    "cypher": cypher,
-                    "safety": Text2CypherSafety(passed=True, rules=rules).model_dump(),
-                    **result,
-                }
-            return {
-                "cypher": cypher,
-                "safety": Text2CypherSafety(passed=True, rules=rules).model_dump(),
-                "table": {"columns": [], "rows": []},
-                "graph": graph_store.all_graph().model_dump(),
-            }
+        if is_write_intent(request.question):
+            raise ValueError("生成的 Cypher 包含写操作意图，已拒绝执行。")
+
+        cypher, rules = generate_cypher_with_llm(request.question, HttpLLMGateway())
+        safety = Text2CypherSafety(passed=True, rules=rules).model_dump()
+        if settings.graph_backend.lower() == "neo4j":
+            result = execute_readonly_cypher(get_neo4j_driver(), cypher)
+            return {"cypher": cypher, "safety": safety, **result}
+        return {
+            "cypher": cypher,
+            "safety": safety,
+            "table": {"columns": [], "rows": []},
+            "graph": graph_store.all_graph().model_dump(),
+        }
     except ValueError as exc:
         return JSONResponse(
             status_code=400,
@@ -427,13 +453,13 @@ def stock_analysis(payload: dict) -> dict:
 
     stock_code = str(result.get("target", {}).get("stock_code") or payload.get("stock_code") or "")
     if stock_code:
-        _stock_analysis_cache[stock_code] = result
+        _record_stock_analysis(stock_code, result)
     return result
 
 
 @app.get("/analysis/stock/{stock_code}/latest")
 def latest_stock_analysis(stock_code: str) -> dict:
-    cached = _stock_analysis_cache.get(stock_code)
+    cached = _get_cached_stock_analysis(stock_code)
     if cached:
         return cached
     return build_stock_analysis({"stock_code": stock_code, "company_name": stock_code})

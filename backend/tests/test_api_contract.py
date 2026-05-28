@@ -69,7 +69,7 @@ def test_health_reports_scheduler_and_graph_status():
 def test_health_checks_real_neo4j_connectivity_when_backend_enabled(monkeypatch):
     monkeypatch.setattr("app.main.settings.graph_backend", "neo4j")
     monkeypatch.setattr("app.main.graph_store.health_status", lambda: "memory")
-    monkeypatch.setattr("app.main.create_neo4j_driver", lambda: object(), raising=False)
+    monkeypatch.setattr("app.main.get_neo4j_driver", lambda: object(), raising=False)
     monkeypatch.setattr("app.main.check_neo4j_health", lambda driver: "ok", raising=False)
 
     response = client.get("/health")
@@ -80,7 +80,7 @@ def test_health_checks_real_neo4j_connectivity_when_backend_enabled(monkeypatch)
 
 def test_company_profile_uses_neo4j_reader_when_backend_enabled(monkeypatch):
     monkeypatch.setattr("app.services.graph_query_service.settings.graph_backend", "neo4j")
-    monkeypatch.setattr("app.services.graph_query_service.create_neo4j_driver", lambda: "driver")
+    monkeypatch.setattr("app.services.graph_query_service.get_neo4j_driver", lambda: "driver")
 
     class FakeReader:
         def __init__(self, driver):
@@ -383,7 +383,7 @@ def test_text2cypher_route_executes_readonly_cypher_when_neo4j_enabled(monkeypat
 
     monkeypatch.setattr("app.main.settings.graph_backend", "neo4j")
     monkeypatch.setattr("app.main.HttpLLMGateway", lambda: FakeGateway('{"cypher":"MATCH (c:Company) RETURN c.name AS company"}'))
-    monkeypatch.setattr("app.main.create_neo4j_driver", lambda: "driver")
+    monkeypatch.setattr("app.main.get_neo4j_driver", lambda: "driver")
 
     def fake_execute(driver, cypher):
         captured["driver"] = driver
@@ -673,6 +673,58 @@ def test_financial_dataset_import_uses_project_root_data_path(monkeypatch):
     profile_response = client.get("/graph/company/根目录数据企业")
     assert profile_response.status_code == 200
     assert profile_response.json()["company"]["name"] == "根目录数据企业"
+
+
+def test_text2cypher_returns_json_response_on_validation_failure(monkeypatch):
+    def reject(question, gateway):
+        raise ValueError("生成的 Cypher 包含未知图谱标签 Foo，已拒绝执行。")
+
+    monkeypatch.setattr("app.main.generate_cypher_with_llm", reject)
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: FakeGateway('{"cypher":"MATCH (f:Foo) RETURN f"}'))
+
+    response = client.post("/qa/text2cypher", json={"question": "查询所有 Foo 节点"})
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"] == "unsafe_cypher"
+    assert payload["cypher"] == ""
+    assert "Foo" in payload["message"]
+
+
+def test_stock_analysis_cache_evicts_oldest_when_over_capacity(monkeypatch):
+    monkeypatch.setattr("app.main.settings.stock_analysis_cache_max_size", 2)
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: FailingGateway())
+
+    from app.main import _stock_analysis_cache, _stock_analysis_cache_lock
+
+    with _stock_analysis_cache_lock:
+        _stock_analysis_cache.clear()
+
+    for code in ("600000", "600001", "600002"):
+        response = client.post(
+            "/analysis/stock",
+            json={"stock_code": code, "company_name": f"演示企业{code}"},
+        )
+        assert response.status_code == 200
+
+    with _stock_analysis_cache_lock:
+        cached_keys = list(_stock_analysis_cache.keys())
+
+    assert len(cached_keys) == 2
+    assert "600000" not in cached_keys
+    assert cached_keys[-1] == "600002"
+
+
+def test_cors_allow_origins_respect_settings_whitelist(monkeypatch):
+    response = client.options(
+        "/health",
+        headers={
+            "Origin": "https://evil.example.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert "https://evil.example.com" not in response.headers.get("access-control-allow-origin", "")
 
 
 def test_graph_path_returns_persisted_path_between_entities(monkeypatch):

@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     akshare_update_cron: str = Field(default="0 */6 * * *", alias="AKSHARE_UPDATE_CRON")
     text2cypher_max_limit: int = Field(default=100, alias="TEXT2CYPHER_MAX_LIMIT")
     text2cypher_timeout_seconds: int = Field(default=5, alias="TEXT2CYPHER_TIMEOUT_SECONDS")
+    cors_allow_origins: str = Field(
+        default="http://localhost:5173,http://127.0.0.1:5173",
+        alias="CORS_ALLOW_ORIGINS",
+    )
+    stock_analysis_cache_max_size: int = Field(default=64, alias="STOCK_ANALYSIS_CACHE_MAX_SIZE")
+    job_run_history_max_size: int = Field(default=50, alias="JOB_RUN_HISTORY_MAX_SIZE")
 
     @property
     def llm_enabled(self) -> bool:

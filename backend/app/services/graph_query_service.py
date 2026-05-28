@@ -1,5 +1,5 @@
 from app.config import settings
-from app.neo4j.connection import create_neo4j_driver
+from app.neo4j.connection import get_neo4j_driver
 from app.neo4j.reader import Neo4jGraphReader
 from app.services.graph_store import graph_store
 
@@ -7,7 +7,7 @@ from app.services.graph_store import graph_store
 def _reader() -> Neo4jGraphReader | None:
     if settings.graph_backend.lower() != "neo4j":
         return None
-    return Neo4jGraphReader(create_neo4j_driver())
+    return Neo4jGraphReader(get_neo4j_driver())
 
 
 def company_profile(name: str, depth: int = 2) -> dict:
