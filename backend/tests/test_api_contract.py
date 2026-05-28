@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.mock_data import sample_graph
 
 
 client = TestClient(app)
@@ -158,3 +159,15 @@ def test_dataset_import_is_idempotent_and_populates_queryable_graph():
     profile_response = client.get("/graph/company/示例科技")
     assert profile_response.status_code == 200
     assert profile_response.json()["graph"]["nodes"]
+
+
+def test_financial_dataset_import_uses_dataset_loader(monkeypatch):
+    monkeypatch.setattr("app.main.load_financial_dataset_directory", lambda path: sample_graph("导入企业"))
+
+    response = client.post("/datasets/import", json={"dataset": "financial_datasets"})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+    profile_response = client.get("/graph/company/导入企业")
+    assert profile_response.status_code == 200
+    assert profile_response.json()["company"]["name"] == "导入企业"

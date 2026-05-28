@@ -1,8 +1,11 @@
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
+from app.data.financial_dataset_loader import load_financial_dataset_directory
 from app.models.api import ExtractRequest, HealthResponse, Text2CypherRequest, Text2CypherSafety
 from app.services.extraction_service import extract_mock, extract_with_deepseek, judge_extraction_with_deepseek
 from app.services.graph_rag_service import answer_with_graph_context
@@ -40,7 +43,8 @@ def import_dataset(payload: dict | None = None) -> dict:
     if dataset not in {"sample_graph", "financial_datasets"}:
         raise HTTPException(status_code=400, detail={"error": "invalid_input", "message": f"unsupported dataset: {dataset}"})
 
-    stats = import_graph_runtime(sample_graph("示例科技"))
+    graph = _load_dataset_graph(dataset)
+    stats = import_graph_runtime(graph)
     return {
         "import_run_id": "import_sample_graph",
         "nodes_created": stats.nodes_created,
@@ -49,6 +53,17 @@ def import_dataset(payload: dict | None = None) -> dict:
         "relationships_skipped": stats.relationships_skipped,
         "status": "success",
     }
+
+
+def _load_dataset_graph(dataset: str):
+    if dataset == "financial_datasets":
+        project_root = Path(__file__).resolve().parents[2]
+        raw_dataset_path = project_root / "data" / "raw" / "FinancialDatasets"
+        fallback_path = project_root / "data" / "processed"
+        graph = load_financial_dataset_directory(raw_dataset_path if raw_dataset_path.exists() else fallback_path)
+        if graph.nodes:
+            return graph
+    return sample_graph("示例科技")
 
 
 @app.post("/extract")
