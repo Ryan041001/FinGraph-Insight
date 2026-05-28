@@ -218,6 +218,43 @@ def test_build_kline_response_caches_default_live_fetchers(monkeypatch):
     assert second["data_source"] == "yfinance"
 
 
+def test_build_kline_response_returns_stale_cache_when_sources_fail(monkeypatch):
+    current_time = 1_000.0
+
+    def yfinance_fetcher(**kwargs):
+        return pd.DataFrame(
+            [
+                {
+                    "date": "2024-01-02",
+                    "open": 7.20,
+                    "close": 7.30,
+                    "high": 7.35,
+                    "low": 7.10,
+                    "volume": 1000,
+                    "amount": 0,
+                }
+            ]
+        )
+
+    monkeypatch.setattr(market_service.time, "time", lambda: current_time)
+    monkeypatch.setattr(market_service.settings, "market_kline_cache_ttl_seconds", 1)
+    monkeypatch.setattr(market_service, "fetch_yfinance_kline", yfinance_fetcher)
+    monkeypatch.setattr(market_service, "fetch_yahoo_kline", lambda **kwargs: pd.DataFrame([]))
+    monkeypatch.setattr(market_service, "fetch_akshare_kline", lambda **kwargs: pd.DataFrame([]))
+
+    first = build_kline_response("688889", start_date="2024-01-01", end_date="2024-01-10")
+    current_time = 2_000.0
+    monkeypatch.setattr(market_service, "fetch_yfinance_kline", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("offline")))
+
+    second = build_kline_response("688889", start_date="2024-01-01", end_date="2024-01-10")
+
+    assert first["cached"] is False
+    assert second["cached"] is True
+    assert second["cache_status"] == "stale_if_error"
+    assert second["data_source"] == "yfinance"
+    assert second["kline_data"][0]["close"] == 7.3
+
+
 def test_fetch_yfinance_kline_maps_symbol_and_normalizes_download(monkeypatch):
     captured = {}
 

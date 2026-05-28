@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from app.services.llm_service import LLMGateway, LLMTask
+from app.services.llm_json import parse_llm_json_object
 
 
 def search_news_events(company_name: str, gateway: LLMGateway) -> list[dict[str, Any]]:
@@ -24,5 +24,5 @@ def search_news_events(company_name: str, gateway: LLMGateway) -> list[dict[str,
         temperature=0.1,
         max_tokens=2048,
     )
-    payload = json.loads(content)
+    payload = parse_llm_json_object(content)
     return list(payload.get("events", []))

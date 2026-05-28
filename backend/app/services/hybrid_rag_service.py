@@ -9,6 +9,7 @@ from app.services.format_prompt import HTML_CHAT_FORMAT_INSTRUCTIONS
 from app.services.graph_rag_service import answer_with_hybrid_context
 from app.services.graph_store import InMemoryGraphStore, graph_store as default_graph_store
 from app.services.llm_service import LLMGateway, LLMTask
+from app.services.llm_json import parse_llm_json_object
 from app.services.vector_store import InMemoryVectorStore, vector_store as default_vector_store
 
 
@@ -110,5 +111,5 @@ def _answer_with_llm(
         temperature=0,
         max_tokens=1024,
     )
-    payload = json.loads(content)
+    payload = parse_llm_json_object(content)
     return str(payload.get("answer", "")).strip()

@@ -76,6 +76,12 @@ def build_kline_response(
         except Exception as exc:
             errors.append(f"{data_source}: {exc}")
 
+    if cache_enabled:
+        stale_payload = _get_cached_kline(cache_key, allow_stale=True)
+        if stale_payload is not None:
+            stale_payload["source_errors"] = errors
+            return stale_payload
+
     raise MarketDataError("; ".join(errors))
 
 
@@ -265,16 +271,21 @@ def _kline_cache_enabled(
     return fetcher is None and fallback_fetcher is None and settings.market_kline_cache_ttl_seconds > 0
 
 
-def _get_cached_kline(cache_key: tuple[str, str, str, str | None, str | None, str]) -> dict | None:
+def _get_cached_kline(
+    cache_key: tuple[str, str, str, str | None, str | None, str],
+    *,
+    allow_stale: bool = False,
+) -> dict | None:
     cached = _KLINE_CACHE.get(cache_key)
     if cached is None:
         return None
     expires_at, payload = cached
-    if expires_at <= time.time():
-        _KLINE_CACHE.pop(cache_key, None)
+    expired = expires_at <= time.time()
+    if expired and not allow_stale:
         return None
     response = copy.deepcopy(payload)
     response["cached"] = True
+    response["cache_status"] = "stale_if_error" if expired else "hit"
     return response
 
 

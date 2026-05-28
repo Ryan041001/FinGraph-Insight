@@ -176,7 +176,7 @@ def test_http_gateway_routes_news_task_through_shared_model_and_base_url(monkeyp
     assert captured["headers"]["Authorization"] == "Bearer shared-key"
     assert captured["headers"]["User-Agent"].startswith("Mozilla/5.0")
     assert captured["headers"]["Accept"] == "application/json"
-    assert captured["timeout"] == 120
+    assert captured["timeout"] == 90
     assert captured["json"]["model"] == MODEL_NAME
     assert captured["json"]["tools"] == [{"type": "web_search"}]
     assert captured["json"]["tool_choice"] == "auto"
@@ -214,6 +214,44 @@ def test_http_gateway_forwards_supported_sampling_controls(monkeypatch):
     assert captured["json"]["top_p"] == 0.85
     assert captured["json"]["presence_penalty"] == 0.1
     assert captured["json"]["frequency_penalty"] == 0.2
+
+
+def test_http_gateway_uses_task_specific_timeout(tmp_path, monkeypatch):
+    captured = {}
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "OPENAI_API_KEY=shared-key",
+                "OPENAI_BASE_URL=https://llm-gateway.example/v1",
+                f"LLM_MODEL={MODEL_NAME}",
+                "LLM_TIMEOUT_SECONDS=120",
+                "LLM_TEXT2CYPHER_TIMEOUT_SECONDS=15",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "{\"cypher\":\"MATCH (c:Company) RETURN c\"}"}}]}
+
+    def fake_post(url, headers, json, timeout):
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.llm_service.settings", Settings(_env_file=env_path))
+
+    HttpLLMGateway().complete(
+        task=LLMTask.TEXT2CYPHER,
+        messages=[{"role": "user", "content": "查询所有公司"}],
+    )
+
+    assert captured["timeout"] == 15
 
 
 def test_http_gateway_does_not_send_prompt_cache_controls(tmp_path, monkeypatch):
@@ -316,6 +354,49 @@ def test_http_gateway_reports_empty_non_stream_choices(monkeypatch):
         )
 
 
+def test_http_gateway_reports_tool_calls_without_dispatcher(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {"name": "get_weather", "arguments": "{\"city\":\"上海\"}"},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("app.services.llm_service.settings.openai_api_key", "shared-key")
+    monkeypatch.setattr("app.services.llm_service.settings.llm_model", MODEL_NAME)
+
+    with pytest.raises(RuntimeError, match="tool_calls"):
+        HttpLLMGateway().complete(
+            task=LLMTask.EXTRACTION,
+            messages=[{"role": "user", "content": "必须调用工具"}],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "parameters": {"type": "object", "properties": {"city": {"type": "string"}}},
+                    },
+                }
+            ],
+            tool_choice="required",
+        )
+
+
 def test_http_gateway_streams_chunks_through_shared_model_and_base_url(monkeypatch):
     captured = {}
 
@@ -398,3 +479,41 @@ def test_http_gateway_stream_skips_empty_choice_chunks(monkeypatch):
     )
 
     assert chunks == ["正文"]
+
+
+def test_http_gateway_stream_retries_connection_before_first_chunk(monkeypatch):
+    attempts = []
+
+    class FakeStreamResponse:
+        def raise_for_status(self):
+            return None
+
+        def iter_lines(self):
+            yield "data: " + json.dumps({"choices": [{"delta": {"content": "正文"}}]})
+            yield "data: [DONE]"
+
+    class FakeStreamContext:
+        def __enter__(self):
+            attempts.append("enter")
+            if len(attempts) == 1:
+                raise httpx.ConnectError("connection reset")
+            return FakeStreamResponse()
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    monkeypatch.setattr("app.services.llm_service.httpx.stream", lambda *args, **kwargs: FakeStreamContext())
+    monkeypatch.setattr("app.services.llm_service.settings.openai_api_key", "shared-key")
+    monkeypatch.setattr("app.services.llm_service.settings.openai_base_url", "https://llm-gateway.example/v1")
+    monkeypatch.setattr("app.services.llm_service.settings.llm_model", MODEL_NAME)
+    monkeypatch.setattr("app.services.llm_service.settings.llm_retry_backoff_seconds", 0)
+
+    chunks = list(
+        HttpLLMGateway().stream_complete(
+            task=LLMTask.GRAPH_RAG_STREAM,
+            messages=[{"role": "user", "content": "流式回答"}],
+        )
+    )
+
+    assert chunks == ["正文"]
+    assert attempts == ["enter", "enter"]

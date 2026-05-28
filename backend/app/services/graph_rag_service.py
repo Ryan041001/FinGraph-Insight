@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.models.api import GraphPayload
 from app.services.format_prompt import HTML_CHAT_FORMAT_INSTRUCTIONS
 from app.services.llm_service import LLMGateway, LLMTask
+from app.services.llm_json import parse_llm_json_object
 from app.services.vector_store import InMemoryVectorStore, vector_store as default_vector_store
 import json
 
@@ -92,7 +93,7 @@ def answer_with_llm_graph_context(question: str, graph: GraphPayload, gateway: L
         temperature=0,
         max_tokens=1024,
     )
-    payload = json.loads(content)
+    payload = parse_llm_json_object(content)
     base = answer_with_graph_context(question, graph)
     base["answer"] = str(payload.get("answer", base["answer"]))
     return base

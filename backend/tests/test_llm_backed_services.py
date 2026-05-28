@@ -113,6 +113,27 @@ def test_extract_with_llm_parses_structured_json():
     assert gateway.calls[0]["task"] == "extraction"
 
 
+def test_extract_with_llm_recovers_json_from_fenced_response():
+    gateway = FakeGateway(
+        """
+        ```json
+        {
+          "entities": [
+            {"name": "星河数据", "type": "Company", "evidence": "星河数据完成B轮融资"}
+          ],
+          "relationships": [],
+          "warnings": []
+        }
+        ```
+        """
+    )
+
+    payload = extract_with_llm("星河数据完成B轮融资。", gateway)
+
+    assert payload["entities"][0]["name"] == "星河数据"
+    assert payload["relationships"] == []
+
+
 def test_judge_extraction_with_llm_updates_confidence_and_status():
     payload = {
         "document": {"content_hash": "doc_1"},
@@ -186,6 +207,17 @@ def test_generate_cypher_with_llm_sanitizes_model_output():
     assert cypher == "MATCH (c:Company) RETURN c LIMIT 50"
     assert "limit_added" in rules
     assert gateway.calls[0]["task"] == "text2cypher"
+
+
+def test_generate_cypher_with_llm_recovers_json_from_prefixed_response():
+    gateway = FakeGateway(
+        '可以，结果如下：\n```json\n{"cypher": "MATCH (c:Company) RETURN c"}\n```'
+    )
+
+    cypher, rules = generate_cypher_with_llm("查询所有公司", gateway)
+
+    assert cypher == "MATCH (c:Company) RETURN c LIMIT 50"
+    assert "limit_added" in rules
 
 
 def test_extract_route_uses_configured_llm_when_enabled(monkeypatch):

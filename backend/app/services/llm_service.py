@@ -173,13 +173,16 @@ class HttpLLMGateway(LLMGateway):
             tool_choice=tool_choice,
         )
         endpoint = f"{_base_url(profile.provider).rstrip('/')}/chat/completions"
-        response = _post_chat_completion(endpoint, payload)
+        response = _post_chat_completion(endpoint, payload, timeout=_timeout_for_task(task))
         data = response.json()
         choices = data.get("choices") or []
         if not choices:
             raise RuntimeError("LLM response missing choices.")
-        content = (choices[0].get("message") or {}).get("content")
+        message = choices[0].get("message") or {}
+        content = message.get("content")
         if content is None:
+            if message.get("tool_calls"):
+                raise RuntimeError("LLM response returned tool_calls, but no tool dispatcher is configured.")
             raise RuntimeError("LLM response missing message content.")
         return str(content)
 
@@ -215,31 +218,44 @@ class HttpLLMGateway(LLMGateway):
         )
         payload["stream"] = True
         endpoint = f"{_base_url(profile.provider).rstrip('/')}/chat/completions"
-        with httpx.stream(
-            "POST",
-            endpoint,
-            headers=_llm_headers(),
-            json=payload,
-            timeout=settings.llm_timeout_seconds,
-        ) as response:
-            response.raise_for_status()
-            for line in response.iter_lines():
-                if not line:
-                    continue
-                data = line[6:].strip() if line.startswith("data: ") else line.strip()
-                if data == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-                choices = chunk.get("choices") or []
-                if not choices:
-                    continue
-                delta = choices[0].get("delta", {})
-                content = delta.get("content")
-                if content:
-                    yield str(content)
+        attempts = max(1, int(settings.llm_max_retries) + 1)
+        timeout = _timeout_for_task(task)
+        for attempt_index in range(attempts):
+            yielded_any = False
+            try:
+                with httpx.stream(
+                    "POST",
+                    endpoint,
+                    headers=_llm_headers(),
+                    json=payload,
+                    timeout=timeout,
+                ) as response:
+                    response.raise_for_status()
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+                        data = line[6:].strip() if line.startswith("data: ") else line.strip()
+                        if data == "[DONE]":
+                            return
+                        try:
+                            chunk = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue
+                        choices = chunk.get("choices") or []
+                        if not choices:
+                            continue
+                        delta = choices[0].get("delta", {})
+                        content = delta.get("content")
+                        if content:
+                            yielded_any = True
+                            yield str(content)
+                    return
+            except Exception as exc:
+                if yielded_any or attempt_index >= attempts - 1 or not _is_retryable_llm_error(exc):
+                    raise
+                backoff = max(0.0, float(settings.llm_retry_backoff_seconds)) * (2 ** attempt_index)
+                if backoff:
+                    time.sleep(backoff)
 
 
 def _base_url(provider: str) -> str:
@@ -256,7 +272,7 @@ def _llm_headers() -> dict[str, str]:
     }
 
 
-def _post_chat_completion(endpoint: str, payload: dict[str, Any]) -> httpx.Response:
+def _post_chat_completion(endpoint: str, payload: dict[str, Any], *, timeout: int | float) -> httpx.Response:
     attempts = max(1, int(settings.llm_max_retries) + 1)
     for attempt_index in range(attempts):
         try:
@@ -264,7 +280,7 @@ def _post_chat_completion(endpoint: str, payload: dict[str, Any]) -> httpx.Respo
                 endpoint,
                 headers=_llm_headers(),
                 json=payload,
-                timeout=settings.llm_timeout_seconds,
+                timeout=timeout,
             )
             response.raise_for_status()
             return response
@@ -284,3 +300,12 @@ def _is_retryable_llm_error(exc: Exception) -> bool:
         return exc.response.status_code in RETRYABLE_LLM_STATUS_CODES
     return False
 
+
+def _timeout_for_task(task: LLMTask) -> int:
+    if task == LLMTask.TEXT2CYPHER:
+        return settings.llm_text2cypher_timeout_seconds
+    if task in {LLMTask.NEWS_SEARCH, LLMTask.MARKET_NEWS}:
+        return settings.llm_news_timeout_seconds
+    if task in {LLMTask.GRAPH_RAG_STREAM, LLMTask.STOCK_ANALYSIS_STREAM}:
+        return settings.llm_stream_timeout_seconds
+    return settings.llm_timeout_seconds

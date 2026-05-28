@@ -5,6 +5,7 @@ from typing import Any
 
 from app.services.extraction_service import _normalize_llm_extraction, extract_with_llm
 from app.services.llm_service import LLMGateway, LLMTask
+from app.services.llm_json import parse_llm_json_object
 
 
 def extract_with_self_refine(
@@ -45,7 +46,7 @@ def critique_extraction(text: str, payload: dict[str, Any], gateway: LLMGateway)
         temperature=0,
         max_tokens=1024,
     )
-    critique = json.loads(content)
+    critique = parse_llm_json_object(content)
     if not isinstance(critique, dict):
         return {"issues": [{"type": "invalid_critique", "description": "critique result is not an object"}]}
     issues = critique.get("issues", [])
@@ -87,5 +88,5 @@ def refine_from_critique(
         temperature=0,
         max_tokens=2048,
     )
-    raw = json.loads(content)
+    raw = parse_llm_json_object(content)
     return _normalize_llm_extraction(text, raw)

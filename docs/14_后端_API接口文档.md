@@ -24,11 +24,14 @@ OPENAI_API_KEY=...
 OPENAI_BASE_URL=...
 LLM_MODEL=<model-name>
 LLM_TIMEOUT_SECONDS=120
+LLM_TEXT2CYPHER_TIMEOUT_SECONDS=45
+LLM_NEWS_TIMEOUT_SECONDS=90
+LLM_STREAM_TIMEOUT_SECONDS=120
 LLM_MAX_RETRIES=1
 LLM_RETRY_BACKOFF_SECONDS=0.2
 ```
 
-说明：后端不再区分多套模型路由。抽取、裁判、Text2Cypher、GraphRAG、股票研判、新闻补充都使用同一个 `LLM_MODEL`；新闻补充任务只是在同一模型调用中额外附带 web search tool。LLM 请求会附带浏览器风格 `User-Agent` 和 `Accept: application/json`，非流式调用对连接错误、超时、429 和 5xx 做有限重试。
+说明：后端不再区分多套模型路由。抽取、裁判、Text2Cypher、GraphRAG、股票研判、新闻补充都使用同一个 `LLM_MODEL`；新闻补充任务只是在同一模型调用中额外附带 web search tool。LLM 请求会附带浏览器风格 `User-Agent` 和 `Accept: application/json`；非流式调用对连接错误、超时、429 和 5xx 做有限重试，流式调用在首包前失败时也会重试；Text2Cypher、新闻和流式任务可单独配置超时。
 
 AI HTML 输出约束：
 
@@ -642,7 +645,7 @@ SSE 事件同 `/qa/graph-rag/stream`：
   "cypher": "MATCH (c:Company) RETURN c LIMIT 50",
   "safety": {
     "passed": true,
-    "rules": ["read_only", "path_depth_checked", "limit_added"]
+    "rules": ["read_only", "path_depth_checked", "schema_checked", "limit_added"]
   },
   "table": {
     "columns": [],
@@ -654,6 +657,8 @@ SSE 事件同 `/qa/graph-rag/stream`：
   }
 }
 ```
+
+说明：Text2Cypher 会拒绝写操作、过深路径、超大 LIMIT，以及不在项目 schema 白名单中的 label 或关系类型。LLM 返回带 Markdown 代码块或前后缀说明的 JSON 时，后端会提取第一个 JSON object 后再校验。
 
 LLM 不可用响应：
 
@@ -922,7 +927,7 @@ GET /market/kline/600000?market=A&period=daily&start_date=2024-01-01&end_date=20
 }
 ```
 
-说明：行情优先来自 yfinance；yfinance 不可用时会请求 Yahoo Chart 作为第二真实源，仍不可用时再尝试 AKShare。成功时 `data_source` 可能是 `yfinance`、`yahoo_chart` 或 `akshare`。同参请求在 `MARKET_KLINE_CACHE_TTL_SECONDS` 内复用进程内缓存并返回 `cached=true`。三个真实源都不可用时返回 `503 market_data_error`，不返回 mock K 线。
+说明：行情优先来自 yfinance；yfinance 不可用时会请求 Yahoo Chart 作为第二真实源，仍不可用时再尝试 AKShare。成功时 `data_source` 可能是 `yfinance`、`yahoo_chart` 或 `akshare`。同参请求在 `MARKET_KLINE_CACHE_TTL_SECONDS` 内复用进程内缓存并返回 `cached=true`。缓存过期后如果三个真实源都失败，会返回最近一次真实缓存并标记 `cache_status=stale_if_error`；没有可用真实缓存时返回 `503 market_data_error`，不返回 mock K 线。
 
 ## 17. 错误格式
 

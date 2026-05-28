@@ -7,6 +7,7 @@ from app.models.api import GraphPayload
 from app.services.news_service import search_news_events
 from app.services.graph_store import graph_store
 from app.services.llm_service import LLMGateway, LLMTask
+from app.services.llm_json import parse_llm_json_object
 
 
 DISCLAIMER = "本结果仅用于课程项目演示和研究辅助，不构成投资建议。"
@@ -68,7 +69,7 @@ def summarize_stock_analysis_with_llm(base: dict[str, Any], gateway: LLMGateway)
         temperature=0.1,
         max_tokens=2048,
     )
-    analysis = json.loads(content)
+    analysis = parse_llm_json_object(content)
     analysis["disclaimer"] = DISCLAIMER
     return {**base, "analysis": analysis}
 

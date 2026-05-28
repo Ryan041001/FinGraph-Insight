@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from app.services.llm_service import LLMGateway, LLMTask
+from app.services.llm_json import parse_llm_json_object
 from app.services.graph_store import node_id
 from app.services.entity_resolution_service import EntityResolver
 
@@ -94,7 +95,7 @@ def extract_with_llm(text: str, gateway: LLMGateway) -> dict:
         temperature=0,
         max_tokens=2048,
     )
-    raw = json.loads(content)
+    raw = parse_llm_json_object(content)
     return _normalize_llm_extraction(text, raw)
 
 
@@ -120,7 +121,7 @@ def refine_extraction_with_llm(text: str, payload: dict[str, Any], gateway: LLMG
         temperature=0,
         max_tokens=2048,
     )
-    raw = json.loads(content)
+    raw = parse_llm_json_object(content)
     return _normalize_llm_extraction(text, raw)
 
 
@@ -141,7 +142,7 @@ def judge_extraction_with_llm(payload: dict[str, Any], gateway: LLMGateway) -> d
         temperature=0,
         max_tokens=1024,
     )
-    raw = json.loads(content)
+    raw = parse_llm_json_object(content)
     judgements = {
         str(item.get("temp_id")): item
         for item in raw.get("judgements", [])

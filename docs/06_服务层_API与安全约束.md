@@ -223,6 +223,10 @@ Text2Cypher 是高风险功能，必须限制。
 - `DROP`
 - `CALL dbms`
 - `CALL apoc`
+
+### 3.2 Schema 白名单
+
+LLM 生成的查询还必须使用项目图谱 schema 中的 label 和关系类型。安全但不存在的 schema，例如 `Investor` 或 `INVESTS_IN`，会被拒绝，避免生成“能执行但查不到结果”的查询。
 - `LOAD CSV`
 - `CREATE INDEX`
 - `CREATE CONSTRAINT`
@@ -272,6 +276,9 @@ OPENAI_API_KEY=
 OPENAI_BASE_URL=
 LLM_MODEL=
 LLM_TIMEOUT_SECONDS=120
+LLM_TEXT2CYPHER_TIMEOUT_SECONDS=45
+LLM_NEWS_TIMEOUT_SECONDS=90
+LLM_STREAM_TIMEOUT_SECONDS=120
 LLM_MAX_RETRIES=1
 LLM_RETRY_BACKOFF_SECONDS=0.2
 GRAPH_BACKEND=memory
@@ -301,4 +308,4 @@ AKSHARE_UPDATE_CRON=0 */6 * * *
 - `/graph/import` 重复调用不产生重复关系。
 - `/qa/text2cypher` 拒绝 `DELETE`、`SET`、`MERGE`。
 - `/jobs/akshare/run` 能手动触发更新并返回日志。
-- `/market/kline/{stock_code}` 成功时返回 `data_source=yfinance`、`data_source=yahoo_chart` 或 `data_source=akshare`；同参请求在 `MARKET_KLINE_CACHE_TTL_SECONDS` 内返回 `cached=true`；外部源不可用时返回 `market_data_error`，不返回 mock K 线。
+- `/market/kline/{stock_code}` 成功时返回 `data_source=yfinance`、`data_source=yahoo_chart` 或 `data_source=akshare`；同参请求在 `MARKET_KLINE_CACHE_TTL_SECONDS` 内返回 `cached=true`；缓存过期后如果外部源全失败，会返回最近一次真实缓存并标记 `cache_status=stale_if_error`；没有可用真实缓存时返回 `market_data_error`，不返回 mock K 线。
