@@ -84,12 +84,8 @@ def scheduler_status() -> str:
 
 
 def _default_extractor(text: str) -> dict:
-    if not settings.llm_enabled:
-        return extract_mock(text)
     return extract_with_deepseek(text, HttpLLMGateway())
 
 
 def _default_judge(payload: dict) -> dict:
-    if not settings.llm_enabled:
-        return payload
     return judge_extraction_with_deepseek(payload, HttpLLMGateway())

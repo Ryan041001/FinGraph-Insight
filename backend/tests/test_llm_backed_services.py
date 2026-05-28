@@ -194,7 +194,6 @@ def test_extract_route_uses_configured_llm_when_enabled(monkeypatch):
         '"relationships":[],"warnings":[]}'
     )
 
-    monkeypatch.setattr("app.main.settings.llm_enabled", True)
     monkeypatch.setattr("app.main.HttpLLMGateway", lambda: gateway)
 
     response = client.post("/extract", json={"text": "天河科技完成A轮融资。"})
@@ -217,7 +216,6 @@ def test_extract_route_applies_self_refine_when_enabled(monkeypatch):
         ]
     )
 
-    monkeypatch.setattr("app.main.settings.llm_enabled", True)
     monkeypatch.setattr("app.main.HttpLLMGateway", lambda: gateway)
 
     response = client.post(
@@ -238,7 +236,6 @@ def test_extract_route_applies_self_refine_when_enabled(monkeypatch):
 def test_text2cypher_route_uses_configured_llm_when_enabled(monkeypatch):
     gateway = FakeGateway('{"cypher":"MATCH (c:Company) RETURN c"}')
 
-    monkeypatch.setattr("app.main.settings.llm_enabled", True)
     monkeypatch.setattr("app.main.HttpLLMGateway", lambda: gateway)
 
     response = client.post("/qa/text2cypher", json={"question": "查询所有公司"})

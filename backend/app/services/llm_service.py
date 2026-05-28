@@ -91,10 +91,8 @@ class HttpLLMGateway(LLMGateway):
         temperature: float = 0.2,
         max_tokens: int | None = None,
     ) -> str:
-        if not settings.llm_enabled:
-            raise RuntimeError("LLM is disabled. Set LLM_ENABLED=true to call external providers.")
         if not settings.openai_api_key:
-            raise RuntimeError("OPENAI_API_KEY is required when LLM_ENABLED=true.")
+            raise RuntimeError("OPENAI_API_KEY is required for LLM calls.")
 
         profile = select_model_profile(task)
         payload = build_chat_payload(profile, messages, temperature=temperature, max_tokens=max_tokens)

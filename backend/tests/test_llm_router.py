@@ -4,6 +4,16 @@ from app.services.llm_service import (
     build_chat_payload,
     select_model_profile,
 )
+from app.config import Settings
+
+
+def test_settings_enable_llm_by_default_without_env_toggle(tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text("OPENAI_API_KEY=test-key\n", encoding="utf-8")
+
+    settings = Settings(_env_file=env_path)
+
+    assert settings.llm_enabled is True
 
 
 def test_select_model_profile_routes_structured_finance_tasks_to_deepseek():

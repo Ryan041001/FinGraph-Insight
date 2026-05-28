@@ -32,20 +32,12 @@ def answer_with_hybrid_rag(
         }
         return fallback
 
-    try:
-        answer = _answer_with_llm(
-            question=question,
-            graph=graph,
-            document_context=fallback["document_context"],
-            gateway=gateway,
-        )
-    except Exception:
-        fallback["retrieval"] = {
-            **fallback["retrieval"],
-            "llm_used": False,
-            "answer_source": "fallback",
-        }
-        return fallback
+    answer = _answer_with_llm(
+        question=question,
+        graph=graph,
+        document_context=fallback["document_context"],
+        gateway=gateway,
+    )
 
     return {
         **fallback,

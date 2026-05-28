@@ -22,6 +22,11 @@ class FakeGateway:
         return self.content
 
 
+class FailingGateway:
+    def complete(self, *, task, messages, temperature=0.2, max_tokens=None):
+        raise RuntimeError("upstream unavailable")
+
+
 def test_vector_store_indexes_chunks_and_ranks_relevant_documents():
     store = InMemoryVectorStore()
 
@@ -116,8 +121,10 @@ def test_hybrid_rag_service_marks_successful_llm_answer_source():
     assert len(gateway.calls) == 1
 
 
-def test_graph_rag_route_uses_indexed_document_context():
+def test_graph_rag_route_uses_indexed_document_context(monkeypatch):
     vector_store.clear()
+    gateway = FakeGateway('{"answer":"路径企业通过年度订阅服务获得收入。"}')
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: gateway)
 
     index_response = client.post(
         "/rag/documents",
@@ -138,12 +145,15 @@ def test_graph_rag_route_uses_indexed_document_context():
     assert qa_response.status_code == 200
     payload = qa_response.json()
     assert payload["retrieval"]["mode"] == "hybrid"
+    assert payload["retrieval"]["llm_used"] is True
     assert payload["document_context"]
     assert "年度订阅服务" in payload["answer"]
 
 
-def test_hybrid_rag_route_returns_indexed_document_context():
+def test_hybrid_rag_route_returns_indexed_document_context(monkeypatch):
     vector_store.clear()
+    gateway = FakeGateway('{"answer":"路径企业通过年度订阅服务获得收入。"}')
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: gateway)
 
     index_response = client.post(
         "/rag/documents",
@@ -163,6 +173,7 @@ def test_hybrid_rag_route_returns_indexed_document_context():
     assert qa_response.status_code == 200
     payload = qa_response.json()
     assert payload["retrieval"]["mode"] == "hybrid"
+    assert payload["retrieval"]["llm_used"] is True
     assert payload["document_context"]
     assert "年度订阅服务" in payload["answer"]
 
@@ -171,7 +182,6 @@ def test_hybrid_rag_route_calls_llm_when_enabled(monkeypatch):
     vector_store.clear()
     gateway = FakeGateway('{"answer":"路由已调用LLM。"}')
 
-    monkeypatch.setattr("app.main.settings.llm_enabled", True)
     monkeypatch.setattr("app.main.HttpLLMGateway", lambda: gateway)
 
     response = client.post(
@@ -183,3 +193,15 @@ def test_hybrid_rag_route_calls_llm_when_enabled(monkeypatch):
     assert response.json()["answer"] == "路由已调用LLM。"
     assert response.json()["retrieval"]["llm_used"] is True
     assert len(gateway.calls) == 1
+
+
+def test_hybrid_rag_route_reports_llm_error_instead_of_fallback(monkeypatch):
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: FailingGateway())
+
+    response = client.post(
+        "/qa/hybrid-rag",
+        json={"question": "路径企业的收入模式是什么？"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["error"] == "llm_error"

@@ -60,6 +60,7 @@ def test_run_akshare_update_records_pipeline_counts_from_fetcher():
     job = run_akshare_update(
         fetcher=fake_fetcher,
         extractor=fake_extractor,
+        judge=lambda payload: payload,
         importer=lambda payload: ImportStats(
             nodes_created=2,
             nodes_matched=0,

@@ -56,6 +56,16 @@ app.add_middleware(
 )
 
 
+def _raise_llm_error(exc: Exception) -> None:
+    raise HTTPException(
+        status_code=502,
+        detail={
+            "error": "llm_error",
+            "message": str(exc),
+        },
+    ) from exc
+
+
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="ok", neo4j=graph_store.health_status(), scheduler=scheduler_status())
@@ -97,21 +107,17 @@ def _load_dataset_graph(dataset: str):
 
 @app.post("/extract")
 def extract(request: ExtractRequest) -> dict:
-    if settings.llm_enabled:
-        try:
-            gateway = HttpLLMGateway()
-            if request.options.self_refine:
-                payload = extract_with_self_refine(request.text, gateway)
-            else:
-                payload = extract_with_deepseek(request.text, gateway)
-            if request.options.judge:
-                payload = judge_extraction_with_deepseek(payload, gateway)
-            return payload
-        except Exception as exc:
-            fallback = extract_mock(request.text)
-            fallback["warnings"].append(f"llm_fallback: {exc}")
-            return fallback
-    return extract_mock(request.text)
+    try:
+        gateway = HttpLLMGateway()
+        if request.options.self_refine:
+            payload = extract_with_self_refine(request.text, gateway)
+        else:
+            payload = extract_with_deepseek(request.text, gateway)
+        if request.options.judge:
+            payload = judge_extraction_with_deepseek(payload, gateway)
+        return payload
+    except Exception as exc:
+        _raise_llm_error(exc)
 
 
 @app.post("/graph/import")
@@ -145,25 +151,29 @@ def get_path(source: str, target: str, max_depth: int = 4) -> dict:
 def graph_rag(payload: dict) -> dict:
     company_name = extract_company_name_from_question(payload.get("question"))
     graph = graph_store.subgraph(company_name)
-    if settings.llm_enabled:
-        try:
-            response = answer_with_deepseek_graph_context(str(payload.get("question", "")), graph, HttpLLMGateway())
-            hybrid = answer_with_hybrid_context(str(payload.get("question", "")), graph)
-            response["document_context"] = hybrid["document_context"]
-            response["retrieval"] = hybrid["retrieval"]
-            response["citations"] = [*response["citations"], *hybrid["citations"][len(response["citations"]) :]]
-            return response
-        except Exception:
-            pass
-    return answer_with_hybrid_context(str(payload.get("question", "")), graph)
+    try:
+        response = answer_with_deepseek_graph_context(str(payload.get("question", "")), graph, HttpLLMGateway())
+        hybrid = answer_with_hybrid_context(str(payload.get("question", "")), graph)
+        response["document_context"] = hybrid["document_context"]
+        response["retrieval"] = {
+            **hybrid["retrieval"],
+            "llm_used": True,
+            "answer_source": "llm",
+        }
+        response["citations"] = [*response["citations"], *hybrid["citations"][len(response["citations"]) :]]
+        return response
+    except Exception as exc:
+        _raise_llm_error(exc)
 
 
 @app.post("/qa/hybrid-rag")
 def hybrid_rag(payload: dict) -> dict:
     question = str(payload.get("question", ""))
     entity = payload.get("entity")
-    gateway = HttpLLMGateway() if settings.llm_enabled else None
-    return answer_with_hybrid_rag(question, entity=entity, gateway=gateway)
+    try:
+        return answer_with_hybrid_rag(question, entity=entity, gateway=HttpLLMGateway())
+    except Exception as exc:
+        _raise_llm_error(exc)
 
 
 @app.post("/rag/documents")
@@ -197,7 +207,7 @@ def extract_company_name_from_question(question: object) -> str:
 @app.post("/qa/text2cypher")
 def text2cypher(request: Text2CypherRequest):
     try:
-        if settings.llm_enabled:
+        if answer_text2cypher(request.question).safety.passed:
             cypher, rules = generate_cypher_with_deepseek(request.question, HttpLLMGateway())
             return {
                 "cypher": cypher,
@@ -205,7 +215,6 @@ def text2cypher(request: Text2CypherRequest):
                 "table": {"columns": [], "rows": []},
                 "graph": sample_graph().model_dump(),
             }
-        return answer_text2cypher(request.question)
     except ValueError as exc:
         return JSONResponse(
             status_code=400,
@@ -215,6 +224,8 @@ def text2cypher(request: Text2CypherRequest):
                 "cypher": "",
             },
         )
+    except Exception as exc:
+        _raise_llm_error(exc)
 
 
 @app.get("/jobs")
@@ -247,13 +258,14 @@ def evaluate_metrics() -> dict:
 
 @app.post("/analysis/stock")
 def stock_analysis(payload: dict) -> dict:
-    if settings.llm_enabled and payload.get("refresh_news"):
-        gateway = HttpLLMGateway()
-        enriched = build_stock_analysis(payload, news_gateway=gateway)
-        return build_stock_analysis_with_deepseek(enriched, gateway)
-    if settings.llm_enabled:
+    try:
+        if payload.get("refresh_news"):
+            gateway = HttpLLMGateway()
+            enriched = build_stock_analysis(payload, news_gateway=gateway)
+            return build_stock_analysis_with_deepseek(enriched, gateway)
         return build_stock_analysis_with_deepseek(payload, HttpLLMGateway())
-    return build_stock_analysis(payload)
+    except Exception as exc:
+        _raise_llm_error(exc)
 
 
 @app.get("/analysis/stock/{stock_code}/latest")
