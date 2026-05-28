@@ -9,7 +9,7 @@ from app.data.financial_dataset_loader import load_financial_dataset_directory
 from app.models.api import ExtractRequest, HealthResponse, Text2CypherRequest, Text2CypherSafety
 from app.services.extraction_service import extract_mock, extract_with_deepseek, judge_extraction_with_deepseek
 from app.services.graph_rag_service import answer_with_graph_context
-from app.services.graph_query_service import company_profile, subgraph
+from app.services.graph_query_service import company_profile, paths, subgraph
 from app.services.graph_runtime import import_graph_runtime
 from app.services.graph_store import graph_store
 from app.services.market_service import build_kline_response, get_kline_mock
@@ -106,8 +106,7 @@ def get_subgraph(entity: str, depth: int = 2, limit: int = 80) -> dict:
 
 @app.get("/graph/path")
 def get_path(source: str, target: str, max_depth: int = 4) -> dict:
-    graph = sample_graph(source)
-    return {"paths": [{"nodes": graph.model_dump()["nodes"], "edges": graph.model_dump()["edges"], "length": 2}]}
+    return paths(source, target, max_depth=max_depth)
 
 
 @app.post("/qa/graph-rag")

@@ -159,6 +159,40 @@ class InMemoryGraphStore:
         with self._lock:
             return GraphPayload(nodes=list(self._nodes.values()), edges=list(self._edges.values()))
 
+    def paths(self, source_label: str, target_label: str, max_depth: int = 4) -> list[dict[str, Any]]:
+        with self._lock:
+            source = self._find_node_by_label(source_label)
+            target = self._find_node_by_label(target_label)
+            if source is None or target is None:
+                return []
+
+            max_depth = max(1, min(max_depth, 4))
+            queue: list[tuple[str, list[str], list[str]]] = [(source.id, [source.id], [])]
+            visited_depth: dict[str, int] = {source.id: 0}
+
+            while queue:
+                current_id, node_path, edge_path = queue.pop(0)
+                if current_id == target.id:
+                    return [self._path_payload(node_path, edge_path)]
+                if len(edge_path) >= max_depth:
+                    continue
+
+                for edge in self._edges.values():
+                    neighbor = None
+                    if edge.source == current_id:
+                        neighbor = edge.target
+                    elif edge.target == current_id:
+                        neighbor = edge.source
+                    if neighbor is None or neighbor in node_path:
+                        continue
+                    next_depth = len(edge_path) + 1
+                    if visited_depth.get(neighbor, max_depth + 1) <= next_depth:
+                        continue
+                    visited_depth[neighbor] = next_depth
+                    queue.append((neighbor, [*node_path, neighbor], [*edge_path, edge.id]))
+
+            return []
+
     def _find_company(self, name: str) -> GraphNode | None:
         normalized = name.strip().lower()
         for node in self._nodes.values():
@@ -195,6 +229,13 @@ class InMemoryGraphStore:
 
         nodes = [self._nodes[node] for node in visited if node in self._nodes]
         return GraphPayload(nodes=nodes, edges=list(selected_edges.values()))
+
+    def _path_payload(self, node_ids: list[str], edge_ids: list[str]) -> dict[str, Any]:
+        return {
+            "nodes": [self._nodes[node_id].model_dump() for node_id in node_ids if node_id in self._nodes],
+            "edges": [self._edges[edge_id].model_dump() for edge_id in edge_ids if edge_id in self._edges],
+            "length": len(edge_ids),
+        }
 
     @staticmethod
     def _profile_from_graph(name: str, graph: GraphPayload, depth: int) -> dict[str, Any]:
