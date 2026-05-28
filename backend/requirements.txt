@@ -1,0 +1,12 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+pydantic-settings>=2.2
+neo4j>=5.18
+pandas>=2.2
+openpyxl>=3.1
+beautifulsoup4>=4.12
+apscheduler>=3.10
+akshare>=1.13
+httpx>=0.26
+pytest>=7.4
