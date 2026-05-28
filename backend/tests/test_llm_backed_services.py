@@ -236,6 +236,20 @@ def test_generate_cypher_with_llm_requires_cypher_string():
         generate_cypher_with_llm("查询所有公司", gateway)
 
 
+def test_generate_cypher_with_llm_allows_runtime_schema_tokens(monkeypatch):
+    class RuntimeSchemaStore:
+        def schema_tokens(self):
+            return {"Dataset"}, {"MENTIONS"}
+
+    monkeypatch.setattr("app.services.text2cypher_service.graph_store", RuntimeSchemaStore())
+    gateway = FakeGateway('{"cypher":"MATCH (d:Dataset)-[:MENTIONS]->(c:Company) RETURN d, c"}')
+
+    cypher, rules = generate_cypher_with_llm("查询数据集提及的公司", gateway)
+
+    assert cypher == "MATCH (d:Dataset)-[:MENTIONS]->(c:Company) RETURN d, c LIMIT 50"
+    assert "schema_checked" in rules
+
+
 def test_extract_route_uses_configured_llm_when_enabled(monkeypatch):
     gateway = FakeGateway(
         '{"entities":[{"name":"天河科技","type":"Company","evidence":"天河科技完成A轮融资"}],'

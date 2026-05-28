@@ -4,6 +4,7 @@ from app.models.api import Text2CypherResponse, Text2CypherSafety
 from app.services.llm_service import LLMGateway, LLMTask
 from app.services.llm_json import parse_llm_json_object, require_llm_json_string
 from app.models.api import GraphPayload
+from app.services.graph_store import graph_store
 
 
 DEFAULT_LIMIT = 50
@@ -41,12 +42,18 @@ def is_write_intent(question: str) -> bool:
 def validate_cypher(cypher: str) -> tuple[bool, str | None]:
     upper = _strip_comments(cypher).upper()
     for keyword in FORBIDDEN_KEYWORDS:
-        if keyword in upper:
+        pattern = r"\b" + r"\s+".join(re.escape(part) for part in keyword.split()) + r"\b"
+        if re.search(pattern, upper):
             return False, f"生成的 Cypher 包含写操作关键词 {keyword}，已拒绝执行。"
     return True, None
 
 
-def sanitize_readonly_cypher(cypher: str) -> tuple[str, list[str]]:
+def sanitize_readonly_cypher(
+    cypher: str,
+    *,
+    extra_labels: set[str] | None = None,
+    extra_relationships: set[str] | None = None,
+) -> tuple[str, list[str]]:
     cleaned = _strip_comments(cypher).strip().rstrip(";")
     upper = cleaned.upper()
     rules = ["read_only"]
@@ -60,7 +67,11 @@ def sanitize_readonly_cypher(cypher: str) -> tuple[str, list[str]]:
 
     _validate_path_depth(cleaned)
     rules.append("path_depth_checked")
-    _validate_schema_tokens(cleaned)
+    _validate_schema_tokens(
+        cleaned,
+        extra_labels=extra_labels or set(),
+        extra_relationships=extra_relationships or set(),
+    )
     rules.append("schema_checked")
 
     limit_match = re.search(r"\bLIMIT\s+(\d+)\b", cleaned, flags=re.IGNORECASE)
@@ -113,7 +124,12 @@ def generate_cypher_with_llm(question: str, gateway: LLMGateway) -> tuple[str, l
         max_tokens=1024,
     )
     payload = parse_llm_json_object(content)
-    return sanitize_readonly_cypher(require_llm_json_string(payload, "cypher"))
+    labels, relationships = _runtime_schema_tokens()
+    return sanitize_readonly_cypher(
+        require_llm_json_string(payload, "cypher"),
+        extra_labels=labels,
+        extra_relationships=relationships,
+    )
 
 
 def _strip_comments(cypher: str) -> str:
@@ -128,17 +144,32 @@ def _validate_path_depth(cypher: str) -> None:
             raise ValueError(f"生成的 Cypher 路径深度超过 {MAX_PATH_DEPTH}，已拒绝执行。")
 
 
-def _validate_schema_tokens(cypher: str) -> None:
+def _validate_schema_tokens(
+    cypher: str,
+    *,
+    extra_labels: set[str],
+    extra_relationships: set[str],
+) -> None:
+    allowed_labels = ALLOWED_LABELS | extra_labels
+    allowed_relationships = ALLOWED_RELATIONSHIPS | extra_relationships
     labels = set(re.findall(r":\s*([A-Za-z_][A-Za-z0-9_]*)", _strip_relationship_patterns(cypher)))
-    unknown_labels = sorted(labels - ALLOWED_LABELS)
+    unknown_labels = sorted(labels - allowed_labels)
     if unknown_labels:
         raise ValueError(f"生成的 Cypher 包含未知图谱标签 {', '.join(unknown_labels)}，已拒绝执行。")
 
     relationships = set(re.findall(r"\[\s*\w*\s*:\s*([A-Za-z_][A-Za-z0-9_]*)", cypher))
-    unknown_relationships = sorted(relationships - ALLOWED_RELATIONSHIPS)
+    unknown_relationships = sorted(relationships - allowed_relationships)
     if unknown_relationships:
         raise ValueError(f"生成的 Cypher 包含未知关系类型 {', '.join(unknown_relationships)}，已拒绝执行。")
 
 
 def _strip_relationship_patterns(cypher: str) -> str:
     return re.sub(r"\[[^\]]*\]", " ", cypher)
+
+
+def _runtime_schema_tokens() -> tuple[set[str], set[str]]:
+    try:
+        labels, relationships = graph_store.schema_tokens()
+    except AttributeError:
+        return set(), set()
+    return set(labels), set(relationships)

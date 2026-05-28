@@ -157,6 +157,12 @@ class InMemoryGraphStore:
         with self._lock:
             return GraphPayload(nodes=list(self._nodes.values()), edges=list(self._edges.values()))
 
+    def schema_tokens(self) -> tuple[set[str], set[str]]:
+        with self._lock:
+            labels = {node.type for node in self._nodes.values() if node.type}
+            relationships = {edge.type for edge in self._edges.values() if edge.type}
+            return labels, relationships
+
     def paths(self, source_label: str, target_label: str, max_depth: int = 4) -> list[dict[str, Any]]:
         with self._lock:
             source = self._find_node_by_label(source_label)

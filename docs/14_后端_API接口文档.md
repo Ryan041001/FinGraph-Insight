@@ -41,6 +41,8 @@ MARKET_KLINE_CACHE_DIR=.cache/kline
 
 LLM JSON 响应会进行对象解析和关键字段类型校验。字段缺失或类型不符合预期时按 `llm_error` 返回，避免空答案、错误列表类型或缺失 Cypher 被误判为成功。
 
+Text2Cypher 仍默认执行只读、路径深度、LIMIT 和 schema 校验；LLM 生成路径会把当前图谱中真实出现的节点类型和关系类型作为额外 schema token，避免图谱扩展后静态白名单误拒，同时继续拒绝未知幻觉标签和关系。
+
 AI HTML 输出约束：
 
 - 普通回答仍优先使用 Markdown。
