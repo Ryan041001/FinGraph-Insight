@@ -11,6 +11,7 @@ from app.services.market_service import get_kline_mock
 from app.services.metrics_service import default_gold_standard_path, evaluate_gold_standard
 from app.services.mock_data import sample_graph
 from app.services.scheduler_service import get_job_run, list_job_runs, run_akshare_update_mock
+from app.services.stock_analysis_service import build_stock_analysis
 from app.services.text2cypher_service import answer_text2cypher
 
 
@@ -149,22 +150,7 @@ def evaluate_metrics() -> dict:
 
 @app.post("/analysis/stock")
 def stock_analysis(payload: dict) -> dict:
-    graph = sample_graph(payload.get("company_name") or payload.get("stock_code") or "示例科技")
-    return {
-        "target": {"stock_code": payload.get("stock_code", "600000"), "company_name": payload.get("company_name", "示例科技")},
-        "fundamentals": {"industry": "金融科技", "data_time": "mock"},
-        "news_events": [],
-        "subgraph": graph.model_dump(),
-        "analysis": {
-            "summary": "该示例公司当前主要关注融资事件和关联方变化。",
-            "opportunity_factors": [],
-            "risk_factors": [],
-            "graph_insights": [{"title": "融资事件可由图谱路径追溯", "path": "红杉资本 -> B轮融资事件 -> 示例科技"}],
-            "confidence": 0.75,
-            "missing_data": ["真实行情和财务数据尚未接入"],
-            "disclaimer": "本结果仅用于课程项目演示和研究辅助，不构成投资建议。",
-        },
-    }
+    return build_stock_analysis(payload)
 
 
 @app.get("/analysis/stock/{stock_code}/latest")
