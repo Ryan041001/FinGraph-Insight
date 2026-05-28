@@ -98,6 +98,45 @@ def extract_with_deepseek(text: str, gateway: LLMGateway) -> dict:
     return _normalize_llm_extraction(text, raw)
 
 
+def judge_extraction_with_deepseek(payload: dict[str, Any], gateway: LLMGateway) -> dict[str, Any]:
+    content = gateway.complete(
+        task=LLMTask.JUDGE,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "你是金融关系抽取裁判。请严格输出 json，格式为 "
+                    "{\"judgements\":[{\"temp_id\":\"r1\",\"confidence\":0.9,\"reason\":\"...\"}]}。"
+                    "confidence 规则：1.0 原文明确支持，0.8 强支持，0.5 不确定，0.2 依据弱，0.0 不支持。"
+                ),
+            },
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+        ],
+        temperature=0,
+        max_tokens=1024,
+    )
+    raw = json.loads(content)
+    judgements = {
+        str(item.get("temp_id")): item
+        for item in raw.get("judgements", [])
+    }
+    judged = {
+        **payload,
+        "relationships": [dict(relationship) for relationship in payload.get("relationships", [])],
+    }
+
+    for relationship in judged["relationships"]:
+        judgement = judgements.get(str(relationship.get("temp_id")))
+        if not judgement:
+            continue
+        confidence = float(judgement.get("confidence", relationship.get("confidence", 0.5)))
+        relationship["confidence"] = confidence
+        relationship["status"] = _status_for_confidence(confidence)
+        relationship["judge_reason"] = judgement.get("reason", "")
+
+    return judged
+
+
 def _normalize_llm_extraction(text: str, raw: dict[str, Any]) -> dict:
     cleaned_text = re.sub(r"\s+", "", text or "")
     content_hash = hashlib.sha1(cleaned_text.encode("utf-8")).hexdigest()[:16]

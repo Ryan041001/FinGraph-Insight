@@ -1,4 +1,4 @@
-from app.services.extraction_service import extract_with_deepseek
+from app.services.extraction_service import judge_extraction_with_deepseek, extract_with_deepseek
 from app.services.text2cypher_service import generate_cypher_with_deepseek
 from tests.test_api_contract import client
 
@@ -50,6 +50,31 @@ def test_extract_with_deepseek_parses_structured_json():
     assert payload["relationships"][0]["relation"] == "INVESTED_IN"
     assert payload["relationships"][0]["status"] == "confirmed"
     assert gateway.calls[0]["task"] == "extraction"
+
+
+def test_judge_extraction_with_deepseek_updates_confidence_and_status():
+    payload = {
+        "document": {"content_hash": "doc_1"},
+        "entities": [],
+        "relationships": [
+            {
+                "temp_id": "r1",
+                "relation": "INVESTED_IN",
+                "evidence": "红杉资本领投。",
+                "confidence": 0.6,
+                "status": "pending_review",
+            }
+        ],
+        "warnings": [],
+    }
+    gateway = FakeGateway('{"judgements":[{"temp_id":"r1","confidence":0.94,"reason":"原文明确支持"}]}')
+
+    judged = judge_extraction_with_deepseek(payload, gateway)
+
+    assert judged["relationships"][0]["confidence"] == 0.94
+    assert judged["relationships"][0]["status"] == "confirmed"
+    assert judged["relationships"][0]["judge_reason"] == "原文明确支持"
+    assert gateway.calls[0]["task"] == "judge"
 
 
 def test_generate_cypher_with_deepseek_sanitizes_model_output():

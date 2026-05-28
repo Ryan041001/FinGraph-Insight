@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.models.api import ExtractRequest, HealthResponse, Text2CypherRequest, Text2CypherSafety
-from app.services.extraction_service import extract_mock, extract_with_deepseek
+from app.services.extraction_service import extract_mock, extract_with_deepseek, judge_extraction_with_deepseek
 from app.services.graph_rag_service import answer_with_graph_context
 from app.services.graph_query_service import company_profile, subgraph
 from app.services.graph_store import graph_store
@@ -54,7 +54,11 @@ def import_dataset(payload: dict | None = None) -> dict:
 def extract(request: ExtractRequest) -> dict:
     if settings.llm_enabled:
         try:
-            return extract_with_deepseek(request.text, HttpLLMGateway())
+            gateway = HttpLLMGateway()
+            payload = extract_with_deepseek(request.text, gateway)
+            if request.options.judge:
+                payload = judge_extraction_with_deepseek(payload, gateway)
+            return payload
         except Exception as exc:
             fallback = extract_mock(request.text)
             fallback["warnings"].append(f"llm_fallback: {exc}")
