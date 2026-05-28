@@ -125,25 +125,6 @@ def test_build_chat_payload_forwards_supported_sampling_controls():
     assert payload["frequency_penalty"] == 0.2
 
 
-def test_build_chat_payload_includes_prompt_cache_controls_when_provided():
-    profile = ModelProfile(
-        provider="default",
-        model=MODEL_NAME,
-        purpose="金融结构化抽取",
-        use_json_output=True,
-    )
-
-    payload = build_chat_payload(
-        profile=profile,
-        messages=[{"role": "user", "content": "抽取实体关系"}],
-        prompt_cache_key="fingraph:extraction",
-        prompt_cache_retention="in_memory",
-    )
-
-    assert payload["prompt_cache_key"] == "fingraph:extraction"
-    assert payload["prompt_cache_retention"] == "in_memory"
-
-
 def test_build_chat_payload_enables_web_search_tool_for_freshness_tasks():
     profile = ModelProfile(
         provider="default",
@@ -235,7 +216,7 @@ def test_http_gateway_forwards_supported_sampling_controls(monkeypatch):
     assert captured["json"]["frequency_penalty"] == 0.2
 
 
-def test_http_gateway_adds_configured_prompt_cache_key_per_task(tmp_path, monkeypatch):
+def test_http_gateway_does_not_send_prompt_cache_controls(tmp_path, monkeypatch):
     captured = {}
     env_path = tmp_path / ".env"
     env_path.write_text(
@@ -270,8 +251,8 @@ def test_http_gateway_adds_configured_prompt_cache_key_per_task(tmp_path, monkey
         messages=[{"role": "user", "content": "输出 JSON"}],
     )
 
-    assert captured["json"]["prompt_cache_key"] == "fingraph:extraction"
-    assert captured["json"]["prompt_cache_retention"] == "in_memory"
+    assert "prompt_cache_key" not in captured["json"]
+    assert "prompt_cache_retention" not in captured["json"]
 
 
 def test_http_gateway_retries_transient_transport_errors(monkeypatch):

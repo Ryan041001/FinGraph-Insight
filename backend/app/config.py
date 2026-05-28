@@ -19,8 +19,6 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = Field(default=120, alias="LLM_TIMEOUT_SECONDS")
     llm_max_retries: int = Field(default=1, alias="LLM_MAX_RETRIES")
     llm_retry_backoff_seconds: float = Field(default=0.2, alias="LLM_RETRY_BACKOFF_SECONDS")
-    llm_prompt_cache_key_prefix: str = Field(default="", alias="LLM_PROMPT_CACHE_KEY_PREFIX")
-    llm_prompt_cache_retention: str = Field(default="", alias="LLM_PROMPT_CACHE_RETENTION")
     graph_backend: str = Field(default="memory", alias="GRAPH_BACKEND")
     market_live_enabled: bool = Field(default=True, alias="MARKET_LIVE_ENABLED")
     market_kline_cache_ttl_seconds: int = Field(default=300, alias="MARKET_KLINE_CACHE_TTL_SECONDS")

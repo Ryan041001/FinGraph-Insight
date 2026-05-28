@@ -74,8 +74,6 @@ def build_chat_payload(
     frequency_penalty: float | None = None,
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | dict[str, Any] | None = None,
-    prompt_cache_key: str | None = None,
-    prompt_cache_retention: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model": profile.model,
@@ -90,10 +88,6 @@ def build_chat_payload(
         payload["presence_penalty"] = presence_penalty
     if frequency_penalty is not None:
         payload["frequency_penalty"] = frequency_penalty
-    if prompt_cache_key:
-        payload["prompt_cache_key"] = prompt_cache_key
-    if prompt_cache_retention:
-        payload["prompt_cache_retention"] = prompt_cache_retention
     if profile.use_json_output:
         payload["response_format"] = {"type": "json_object"}
     resolved_tools = tools
@@ -118,8 +112,6 @@ class LLMGateway:
         frequency_penalty: float | None = None,
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | dict[str, Any] | None = None,
-        prompt_cache_key: str | None = None,
-        prompt_cache_retention: str | None = None,
     ) -> str:
         raise NotImplementedError
 
@@ -135,8 +127,6 @@ class LLMGateway:
         frequency_penalty: float | None = None,
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | dict[str, Any] | None = None,
-        prompt_cache_key: str | None = None,
-        prompt_cache_retention: str | None = None,
     ):
         yield self.complete(
             task=task,
@@ -148,8 +138,6 @@ class LLMGateway:
             frequency_penalty=frequency_penalty,
             tools=tools,
             tool_choice=tool_choice,
-            prompt_cache_key=prompt_cache_key,
-            prompt_cache_retention=prompt_cache_retention,
         )
 
 
@@ -166,8 +154,6 @@ class HttpLLMGateway(LLMGateway):
         frequency_penalty: float | None = None,
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | dict[str, Any] | None = None,
-        prompt_cache_key: str | None = None,
-        prompt_cache_retention: str | None = None,
     ) -> str:
         if not settings.openai_api_key:
             raise RuntimeError("OPENAI_API_KEY is required for LLM calls.")
@@ -185,8 +171,6 @@ class HttpLLMGateway(LLMGateway):
             frequency_penalty=frequency_penalty,
             tools=tools,
             tool_choice=tool_choice,
-            prompt_cache_key=prompt_cache_key or _prompt_cache_key(task),
-            prompt_cache_retention=prompt_cache_retention or _prompt_cache_retention(),
         )
         endpoint = f"{_base_url(profile.provider).rstrip('/')}/chat/completions"
         response = _post_chat_completion(endpoint, payload)
@@ -211,8 +195,6 @@ class HttpLLMGateway(LLMGateway):
         frequency_penalty: float | None = None,
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | dict[str, Any] | None = None,
-        prompt_cache_key: str | None = None,
-        prompt_cache_retention: str | None = None,
     ):
         if not settings.openai_api_key:
             raise RuntimeError("OPENAI_API_KEY is required for LLM calls.")
@@ -230,8 +212,6 @@ class HttpLLMGateway(LLMGateway):
             frequency_penalty=frequency_penalty,
             tools=tools,
             tool_choice=tool_choice,
-            prompt_cache_key=prompt_cache_key or _prompt_cache_key(task),
-            prompt_cache_retention=prompt_cache_retention or _prompt_cache_retention(),
         )
         payload["stream"] = True
         endpoint = f"{_base_url(profile.provider).rstrip('/')}/chat/completions"
@@ -304,14 +284,3 @@ def _is_retryable_llm_error(exc: Exception) -> bool:
         return exc.response.status_code in RETRYABLE_LLM_STATUS_CODES
     return False
 
-
-def _prompt_cache_key(task: LLMTask) -> str | None:
-    prefix = settings.llm_prompt_cache_key_prefix.strip()
-    if not prefix:
-        return None
-    return f"{prefix}:{task.value}"
-
-
-def _prompt_cache_retention() -> str | None:
-    retention = settings.llm_prompt_cache_retention.strip()
-    return retention or None
