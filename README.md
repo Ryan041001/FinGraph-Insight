@@ -2,7 +2,7 @@
 
 这是一个面向金融关系发现与风险研判的知识图谱和大模型应用，也是课程大作业方向二“知识图谱与大模型应用”的项目。
 
-当前后端已切换为真实数据链路：`/datasets/import` 默认导入 `data/raw/FinancialDatasets`，K 线使用 AKShare 优先、Yahoo Chart 备用，新闻只使用 AKShare/LLM 等真实外部源，失败时返回明确错误，不再返回 mock 或 sample graph。`GRAPH_BACKEND=neo4j` 时导入、企业画像、子图、路径和 Text2Cypher 只读查询会走 Neo4j；本地 `memory` 模式仅用于没有 Neo4j 时的开发测试。
+当前后端已切换为真实数据链路：`/datasets/import` 默认导入 `data/raw/FinancialDatasets`，K 线使用 yfinance 优先、Yahoo Chart 和 AKShare 备用，新闻只使用 AKShare/LLM 等真实外部源，失败时返回明确错误，不再返回 mock 或 sample graph。`GRAPH_BACKEND=neo4j` 时导入、企业画像、子图、路径和 Text2Cypher 只读查询会走 Neo4j；本地 `memory` 模式仅用于没有 Neo4j 时的开发测试。
 
 ## 快速启动
 

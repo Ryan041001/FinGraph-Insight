@@ -120,7 +120,7 @@ def test_live_neo4j_backend_flow_uses_real_financial_datasets(neo4j_live_server)
     )
     assert kline.status_code in {200, 503}
     if kline.status_code == 200:
-        assert kline.json()["data_source"] in {"akshare", "yahoo_chart"}
+        assert kline.json()["data_source"] in {"yfinance", "yahoo_chart", "akshare"}
     else:
         assert kline.json()["detail"]["error"] == "market_data_error"
 

@@ -1,5 +1,6 @@
 import json
 
+import httpx
 import pytest
 
 from app.services.llm_service import (
@@ -89,6 +90,60 @@ def test_build_chat_payload_uses_json_response_format_for_structured_tasks():
     assert payload["temperature"] == 0
 
 
+def test_build_chat_payload_does_not_send_provider_specific_thinking_param(monkeypatch):
+    monkeypatch.setattr("app.services.llm_service.settings.llm_model", MODEL_NAME)
+    profile = select_model_profile(LLMTask.EXTRACTION)
+
+    payload = build_chat_payload(
+        profile=profile,
+        messages=[{"role": "user", "content": "抽取实体关系"}],
+    )
+
+    assert "thinking" not in payload
+
+
+def test_build_chat_payload_forwards_supported_sampling_controls():
+    profile = ModelProfile(
+        provider="default",
+        model=MODEL_NAME,
+        purpose="金融结构化抽取",
+        use_json_output=True,
+    )
+
+    payload = build_chat_payload(
+        profile=profile,
+        messages=[{"role": "user", "content": "抽取实体关系"}],
+        temperature=0.1,
+        top_p=0.85,
+        presence_penalty=0.1,
+        frequency_penalty=0.2,
+    )
+
+    assert payload["temperature"] == 0.1
+    assert payload["top_p"] == 0.85
+    assert payload["presence_penalty"] == 0.1
+    assert payload["frequency_penalty"] == 0.2
+
+
+def test_build_chat_payload_includes_prompt_cache_controls_when_provided():
+    profile = ModelProfile(
+        provider="default",
+        model=MODEL_NAME,
+        purpose="金融结构化抽取",
+        use_json_output=True,
+    )
+
+    payload = build_chat_payload(
+        profile=profile,
+        messages=[{"role": "user", "content": "抽取实体关系"}],
+        prompt_cache_key="fingraph:extraction",
+        prompt_cache_retention="in_memory",
+    )
+
+    assert payload["prompt_cache_key"] == "fingraph:extraction"
+    assert payload["prompt_cache_retention"] == "in_memory"
+
+
 def test_build_chat_payload_enables_web_search_tool_for_freshness_tasks():
     profile = ModelProfile(
         provider="default",
@@ -104,6 +159,7 @@ def test_build_chat_payload_enables_web_search_tool_for_freshness_tasks():
 
     assert payload["model"] == MODEL_NAME
     assert payload["tools"] == [{"type": "web_search"}]
+    assert payload["tool_choice"] == "auto"
 
 
 def test_http_gateway_routes_news_task_through_shared_model_and_base_url(monkeypatch):
@@ -137,9 +193,116 @@ def test_http_gateway_routes_news_task_through_shared_model_and_base_url(monkeyp
     assert content == "{\"events\":[]}"
     assert captured["url"] == "https://llm-gateway.example/v1/chat/completions"
     assert captured["headers"]["Authorization"] == "Bearer shared-key"
+    assert captured["headers"]["User-Agent"].startswith("Mozilla/5.0")
+    assert captured["headers"]["Accept"] == "application/json"
     assert captured["timeout"] == 120
     assert captured["json"]["model"] == MODEL_NAME
     assert captured["json"]["tools"] == [{"type": "web_search"}]
+    assert captured["json"]["tool_choice"] == "auto"
+
+
+def test_http_gateway_forwards_supported_sampling_controls(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "{\"events\":[]}"}}]}
+
+    def fake_post(url, headers, json, timeout):
+        captured["json"] = json
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.llm_service.settings.openai_api_key", "shared-key")
+    monkeypatch.setattr("app.services.llm_service.settings.openai_base_url", "https://llm-gateway.example/v1")
+    monkeypatch.setattr("app.services.llm_service.settings.llm_model", MODEL_NAME)
+
+    HttpLLMGateway().complete(
+        task=LLMTask.EXTRACTION,
+        messages=[{"role": "user", "content": "输出 JSON"}],
+        temperature=0.1,
+        top_p=0.85,
+        presence_penalty=0.1,
+        frequency_penalty=0.2,
+    )
+
+    assert captured["json"]["temperature"] == 0.1
+    assert captured["json"]["top_p"] == 0.85
+    assert captured["json"]["presence_penalty"] == 0.1
+    assert captured["json"]["frequency_penalty"] == 0.2
+
+
+def test_http_gateway_adds_configured_prompt_cache_key_per_task(tmp_path, monkeypatch):
+    captured = {}
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "OPENAI_API_KEY=shared-key",
+                "OPENAI_BASE_URL=https://llm-gateway.example/v1",
+                f"LLM_MODEL={MODEL_NAME}",
+                "LLM_PROMPT_CACHE_KEY_PREFIX=fingraph",
+                "LLM_PROMPT_CACHE_RETENTION=in_memory",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "{\"events\":[]}"}}]}
+
+    def fake_post(url, headers, json, timeout):
+        captured["json"] = json
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.llm_service.settings", Settings(_env_file=env_path))
+
+    HttpLLMGateway().complete(
+        task=LLMTask.EXTRACTION,
+        messages=[{"role": "user", "content": "输出 JSON"}],
+    )
+
+    assert captured["json"]["prompt_cache_key"] == "fingraph:extraction"
+    assert captured["json"]["prompt_cache_retention"] == "in_memory"
+
+
+def test_http_gateway_retries_transient_transport_errors(monkeypatch):
+    attempts = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "{\"ok\":true}"}}]}
+
+    def fake_post(url, headers, json, timeout):
+        attempts.append(url)
+        if len(attempts) == 1:
+            raise httpx.ConnectError("connection reset")
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.llm_service.settings.openai_api_key", "shared-key")
+    monkeypatch.setattr("app.services.llm_service.settings.openai_base_url", "https://llm-gateway.example/v1")
+    monkeypatch.setattr("app.services.llm_service.settings.llm_model", MODEL_NAME)
+    monkeypatch.setattr("app.services.llm_service.settings.llm_timeout_seconds", 120, raising=False)
+
+    content = HttpLLMGateway().complete(
+        task=LLMTask.EXTRACTION,
+        messages=[{"role": "user", "content": "输出 JSON"}],
+    )
+
+    assert content == "{\"ok\":true}"
+    assert len(attempts) == 2
 
 
 def test_http_gateway_requires_configured_model_name(monkeypatch):
@@ -216,6 +379,8 @@ def test_http_gateway_streams_chunks_through_shared_model_and_base_url(monkeypat
     assert captured["method"] == "POST"
     assert captured["url"] == "https://llm-gateway.example/v1/chat/completions"
     assert captured["headers"]["Authorization"] == "Bearer shared-key"
+    assert captured["headers"]["User-Agent"].startswith("Mozilla/5.0")
+    assert captured["headers"]["Accept"] == "application/json"
     assert captured["timeout"] == 120
     assert captured["json"]["model"] == MODEL_NAME
     assert captured["json"]["stream"] is True

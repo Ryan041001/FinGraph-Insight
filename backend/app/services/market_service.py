@@ -1,12 +1,19 @@
+import copy
+import time
 from datetime import date, datetime, timedelta, timezone
 from collections.abc import Callable
 
 import httpx
 import pandas as pd
 
+from app.config import settings
+
 
 class MarketDataError(RuntimeError):
     pass
+
+
+_KLINE_CACHE: dict[tuple[str, str, str, str | None, str | None, str], tuple[float, dict]] = {}
 
 
 def build_kline_response(
@@ -19,11 +26,24 @@ def build_kline_response(
     fetcher: Callable[..., pd.DataFrame] | None = None,
     fallback_fetcher: Callable[..., pd.DataFrame] | None = None,
 ) -> dict:
-    fetchers: list[tuple[str, Callable[..., pd.DataFrame]]] = [("akshare", fetcher or fetch_akshare_kline)]
+    cache_key = _kline_cache_key(stock_code, market, period, start_date, end_date, adjust)
+    cache_enabled = _kline_cache_enabled(fetcher, fallback_fetcher)
+    if cache_enabled:
+        cached_payload = _get_cached_kline(cache_key)
+        if cached_payload is not None:
+            return cached_payload
+
+    if fetcher is not None:
+        fetchers: list[tuple[str, Callable[..., pd.DataFrame]]] = [("akshare", fetcher)]
+    else:
+        fetchers = [
+            ("yfinance", fetch_yfinance_kline),
+            ("yahoo_chart", fetch_yahoo_kline),
+            ("akshare", fetch_akshare_kline),
+        ]
+
     if fallback_fetcher is not None:
         fetchers.append(("yahoo_chart", fallback_fetcher))
-    elif fetcher is None:
-        fetchers.append(("yahoo_chart", fetch_yahoo_kline))
 
     errors: list[str] = []
     for data_source, resolved_fetcher in fetchers:
@@ -39,7 +59,7 @@ def build_kline_response(
             kline_data = normalize_kline_frame(frame)
             if not kline_data:
                 raise MarketDataError(f"No market data returned for {stock_code}")
-            return _kline_payload(
+            payload = _kline_payload(
                 stock_code=stock_code,
                 market=market,
                 period=period,
@@ -50,6 +70,9 @@ def build_kline_response(
                 cached=False,
                 data_source=data_source,
             )
+            if cache_enabled:
+                _set_cached_kline(cache_key, payload)
+            return payload
         except Exception as exc:
             errors.append(f"{data_source}: {exc}")
 
@@ -70,6 +93,49 @@ def fetch_akshare_kline(**kwargs) -> pd.DataFrame:
         end_date=end,
         adjust=kwargs.get("adjust", "qfq"),
     )
+
+
+def fetch_yfinance_kline(**kwargs) -> pd.DataFrame:
+    import yfinance as yf
+
+    symbol = _yahoo_symbol(str(kwargs["stock_code"]), str(kwargs.get("market", "A")))
+    start_date = _parse_date(kwargs.get("start_date"), date.today() - timedelta(days=180))
+    end_date = _parse_date(kwargs.get("end_date"), date.today())
+    interval = {"daily": "1d", "weekly": "1wk", "monthly": "1mo"}.get(str(kwargs.get("period", "daily")), "1d")
+    frame = yf.download(
+        symbol,
+        start=start_date.isoformat(),
+        end=(end_date + timedelta(days=1)).isoformat(),
+        interval=interval,
+        auto_adjust=False,
+        progress=False,
+        threads=False,
+    )
+    if frame is None or frame.empty:
+        raise MarketDataError(f"No yfinance market data returned for {symbol}")
+
+    if isinstance(frame.columns, pd.MultiIndex):
+        frame.columns = [str(column[0]) for column in frame.columns]
+
+    rows = []
+    for _, row in frame.reset_index().fillna(0).iterrows():
+        row_date = _field(row, "Date", "Datetime", "date")
+        if hasattr(row_date, "date"):
+            normalized_date = row_date.date().isoformat()
+        else:
+            normalized_date = str(row_date)
+        rows.append(
+            {
+                "date": normalized_date,
+                "open": float(_field(row, "Open", "open")),
+                "close": float(_field(row, "Close", "close")),
+                "high": float(_field(row, "High", "high")),
+                "low": float(_field(row, "Low", "low")),
+                "volume": int(float(_field(row, "Volume", "volume"))),
+                "amount": 0,
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def fetch_yahoo_kline(**kwargs) -> pd.DataFrame:
@@ -179,3 +245,39 @@ def _value_at(values: object, index: int) -> float:
     if not isinstance(values, list) or index >= len(values) or values[index] is None:
         return 0
     return float(values[index])
+
+
+def _kline_cache_key(
+    stock_code: str,
+    market: str,
+    period: str,
+    start_date: str | None,
+    end_date: str | None,
+    adjust: str,
+) -> tuple[str, str, str, str | None, str | None, str]:
+    return (stock_code, market.upper(), period, start_date, end_date, adjust)
+
+
+def _kline_cache_enabled(
+    fetcher: Callable[..., pd.DataFrame] | None,
+    fallback_fetcher: Callable[..., pd.DataFrame] | None,
+) -> bool:
+    return fetcher is None and fallback_fetcher is None and settings.market_kline_cache_ttl_seconds > 0
+
+
+def _get_cached_kline(cache_key: tuple[str, str, str, str | None, str | None, str]) -> dict | None:
+    cached = _KLINE_CACHE.get(cache_key)
+    if cached is None:
+        return None
+    expires_at, payload = cached
+    if expires_at <= time.time():
+        _KLINE_CACHE.pop(cache_key, None)
+        return None
+    response = copy.deepcopy(payload)
+    response["cached"] = True
+    return response
+
+
+def _set_cached_kline(cache_key: tuple[str, str, str, str | None, str | None, str], payload: dict) -> None:
+    expires_at = time.time() + settings.market_kline_cache_ttl_seconds
+    _KLINE_CACHE[cache_key] = (expires_at, copy.deepcopy(payload))

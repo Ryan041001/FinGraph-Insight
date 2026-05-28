@@ -24,9 +24,13 @@ OPENAI_API_KEY=...
 OPENAI_BASE_URL=...
 LLM_MODEL=<model-name>
 LLM_TIMEOUT_SECONDS=120
+LLM_MAX_RETRIES=1
+LLM_RETRY_BACKOFF_SECONDS=0.2
+LLM_PROMPT_CACHE_KEY_PREFIX=
+LLM_PROMPT_CACHE_RETENTION=
 ```
 
-说明：后端不再区分多套模型路由。抽取、裁判、Text2Cypher、GraphRAG、股票研判、新闻补充都使用同一个 `LLM_MODEL`；新闻补充任务只是在同一模型调用中额外附带 web search tool。
+说明：后端不再区分多套模型路由。抽取、裁判、Text2Cypher、GraphRAG、股票研判、新闻补充都使用同一个 `LLM_MODEL`；新闻补充任务只是在同一模型调用中额外附带 web search tool。LLM 请求会附带浏览器风格 `User-Agent` 和 `Accept: application/json`，非流式调用对连接错误、超时、429 和 5xx 做有限重试。需要提高复用 system prompt 的缓存路由命中时，可设置 `LLM_PROMPT_CACHE_KEY_PREFIX`，后端会按任务生成 `prompt_cache_key=<prefix>:<task>`；`LLM_PROMPT_CACHE_RETENTION` 为空时不主动发送保留策略。
 
 AI HTML 输出约束：
 
@@ -902,7 +906,7 @@ GET /market/kline/600000?market=A&period=daily&start_date=2024-01-01&end_date=20
   "period": "daily",
   "adjust": "qfq",
   "cached": false,
-  "data_source": "akshare",
+  "data_source": "yfinance",
   "start_date": "2024-01-01",
   "end_date": "2024-01-10",
   "kline_data": [
@@ -920,7 +924,7 @@ GET /market/kline/600000?market=A&period=daily&start_date=2024-01-01&end_date=20
 }
 ```
 
-说明：行情优先来自 AKShare；AKShare 不可用时会请求 Yahoo Chart 作为第二真实源，此时 `data_source=yahoo_chart`。两个真实源都不可用时返回 `503 market_data_error`，不返回 mock K 线。
+说明：行情优先来自 yfinance；yfinance 不可用时会请求 Yahoo Chart 作为第二真实源，仍不可用时再尝试 AKShare。成功时 `data_source` 可能是 `yfinance`、`yahoo_chart` 或 `akshare`。同参请求在 `MARKET_KLINE_CACHE_TTL_SECONDS` 内复用进程内缓存并返回 `cached=true`。三个真实源都不可用时返回 `503 market_data_error`，不返回 mock K 线。
 
 ## 17. 错误格式
 
