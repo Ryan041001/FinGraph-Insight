@@ -4,9 +4,11 @@ from fastapi.responses import JSONResponse
 
 from app.models.api import ExtractRequest, HealthResponse, Text2CypherRequest
 from app.services.extraction_service import extract_mock
+from app.services.graph_rag_service import answer_with_graph_context
 from app.services.graph_query_service import company_profile, subgraph
 from app.services.graph_store import graph_store
 from app.services.market_service import get_kline_mock
+from app.services.metrics_service import default_gold_standard_path, evaluate_gold_standard
 from app.services.mock_data import sample_graph
 from app.services.scheduler_service import get_job_run, list_job_runs, run_akshare_update_mock
 from app.services.text2cypher_service import answer_text2cypher
@@ -82,12 +84,7 @@ def get_path(source: str, target: str, max_depth: int = 4) -> dict:
 def graph_rag(payload: dict) -> dict:
     company_name = extract_company_name_from_question(payload.get("question"))
     graph = graph_store.subgraph(company_name)
-    return {
-        "answer": f"{company_name}与红杉资本存在B轮融资相关路径，建议重点复核资金来源、轮次信息和后续关联方变化。",
-        "entities": [company_name, "红杉资本", "B轮融资事件"],
-        "supporting_graph": graph.model_dump(),
-        "citations": [{"source": "图谱来源", "source_text": f"红杉资本参与了{company_name}B轮融资。"}],
-    }
+    return answer_with_graph_context(str(payload.get("question", "")), graph)
 
 
 def extract_company_name_from_question(question: object) -> str:
@@ -142,15 +139,7 @@ def get_job(job_run_id: str) -> dict:
 
 @app.get("/metrics/extraction")
 def extraction_metrics() -> dict:
-    return {
-        "entity_precision": 0.82,
-        "entity_recall": 0.78,
-        "entity_f1": 0.80,
-        "relation_precision": 0.76,
-        "relation_recall": 0.70,
-        "relation_f1": 0.73,
-        "hallucination_rate": 0.08,
-    }
+    return evaluate_gold_standard(default_gold_standard_path())
 
 
 @app.post("/metrics/evaluate")
