@@ -286,6 +286,7 @@ LLM_CIRCUIT_BREAKER_COOLDOWN_SECONDS=30
 GRAPH_BACKEND=memory
 MARKET_LIVE_ENABLED=true
 MARKET_KLINE_CACHE_TTL_SECONDS=300
+MARKET_KLINE_CACHE_DIR=.cache/kline
 SCHEDULER_ENABLED=true
 AKSHARE_UPDATE_CRON=0 */6 * * *
 ```
@@ -310,4 +311,4 @@ AKSHARE_UPDATE_CRON=0 */6 * * *
 - `/graph/import` 重复调用不产生重复关系。
 - `/qa/text2cypher` 拒绝 `DELETE`、`SET`、`MERGE`。
 - `/jobs/akshare/run` 能手动触发更新并返回日志。
-- `/market/kline/{stock_code}` 成功时返回 `data_source=yfinance`、`data_source=yahoo_chart` 或 `data_source=akshare`；同参请求在 `MARKET_KLINE_CACHE_TTL_SECONDS` 内返回 `cached=true`；缓存过期后如果外部源全失败，会返回最近一次真实缓存并标记 `cache_status=stale_if_error`；没有可用真实缓存时返回 `market_data_error`，不返回 mock K 线。
+- `/market/kline/{stock_code}` 成功时返回 `data_source=yfinance`、`data_source=yahoo_chart` 或 `data_source=akshare`；同参请求在 `MARKET_KLINE_CACHE_TTL_SECONDS` 内返回 `cached=true`；配置 `MARKET_KLINE_CACHE_DIR` 后会在进程重启后继续复用同参缓存；缓存过期后如果外部源全失败，会返回最近一次真实缓存并标记 `cache_status=stale_if_error`；没有可用真实缓存时返回 `market_data_error`，不返回 mock K 线。

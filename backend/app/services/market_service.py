@@ -1,12 +1,16 @@
 import copy
+import hashlib
+import json
 import time
 from datetime import date, datetime, timedelta, timezone
 from collections.abc import Callable
+from pathlib import Path
+from threading import RLock
 
 import httpx
 import pandas as pd
 
-from app.config import settings
+from app.config import PROJECT_ROOT, settings
 
 
 class MarketDataError(RuntimeError):
@@ -14,6 +18,7 @@ class MarketDataError(RuntimeError):
 
 
 _KLINE_CACHE: dict[tuple[str, str, str, str | None, str | None, str], tuple[float, dict]] = {}
+_KLINE_CACHE_LOCK = RLock()
 
 
 def build_kline_response(
@@ -276,19 +281,96 @@ def _get_cached_kline(
     *,
     allow_stale: bool = False,
 ) -> dict | None:
-    cached = _KLINE_CACHE.get(cache_key)
-    if cached is None:
+    with _KLINE_CACHE_LOCK:
+        cached = _KLINE_CACHE.get(cache_key)
+    if cached is not None:
+        expires_at, payload = cached
+        return _cached_kline_response(payload, expires_at, allow_stale=allow_stale, cache_layer="memory")
+
+    disk_cached = _read_disk_cached_kline(cache_key)
+    if disk_cached is None:
         return None
-    expires_at, payload = cached
+    expires_at, payload = disk_cached
+    response = _cached_kline_response(payload, expires_at, allow_stale=allow_stale, cache_layer="disk")
+    if response is not None:
+        with _KLINE_CACHE_LOCK:
+            _KLINE_CACHE[cache_key] = (expires_at, copy.deepcopy(payload))
+    return response
+
+
+def _cached_kline_response(
+    payload: dict,
+    expires_at: float,
+    *,
+    allow_stale: bool,
+    cache_layer: str,
+) -> dict | None:
     expired = expires_at <= time.time()
     if expired and not allow_stale:
         return None
     response = copy.deepcopy(payload)
     response["cached"] = True
     response["cache_status"] = "stale_if_error" if expired else "hit"
+    response["cache_layer"] = cache_layer
     return response
 
 
 def _set_cached_kline(cache_key: tuple[str, str, str, str | None, str | None, str], payload: dict) -> None:
     expires_at = time.time() + settings.market_kline_cache_ttl_seconds
-    _KLINE_CACHE[cache_key] = (expires_at, copy.deepcopy(payload))
+    with _KLINE_CACHE_LOCK:
+        _KLINE_CACHE[cache_key] = (expires_at, copy.deepcopy(payload))
+    _write_disk_cached_kline(cache_key, expires_at, payload)
+
+
+def _read_disk_cached_kline(cache_key: tuple[str, str, str, str | None, str | None, str]) -> tuple[float, dict] | None:
+    cache_path = _kline_disk_cache_path(cache_key)
+    if cache_path is None or not cache_path.exists():
+        return None
+    try:
+        raw = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if tuple(raw.get("cache_key") or ()) != cache_key:
+        return None
+    payload = raw.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    try:
+        expires_at = float(raw["expires_at"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return expires_at, payload
+
+
+def _write_disk_cached_kline(
+    cache_key: tuple[str, str, str, str | None, str | None, str],
+    expires_at: float,
+    payload: dict,
+) -> None:
+    cache_path = _kline_disk_cache_path(cache_key)
+    if cache_path is None:
+        return
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        body = {
+            "cache_key": list(cache_key),
+            "expires_at": expires_at,
+            "payload": payload,
+            "written_at": time.time(),
+        }
+        temp_path = cache_path.with_suffix(".tmp")
+        temp_path.write_text(json.dumps(body, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        temp_path.replace(cache_path)
+    except OSError:
+        return
+
+
+def _kline_disk_cache_path(cache_key: tuple[str, str, str, str | None, str | None, str]) -> Path | None:
+    configured_dir = settings.market_kline_cache_dir.strip()
+    if not configured_dir:
+        return None
+    cache_dir = Path(configured_dir)
+    if not cache_dir.is_absolute():
+        cache_dir = PROJECT_ROOT / cache_dir
+    digest = hashlib.sha256(json.dumps(cache_key, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
+    return cache_dir / f"{digest}.json"

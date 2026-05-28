@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     graph_backend: str = Field(default="memory", alias="GRAPH_BACKEND")
     market_live_enabled: bool = Field(default=True, alias="MARKET_LIVE_ENABLED")
     market_kline_cache_ttl_seconds: int = Field(default=300, alias="MARKET_KLINE_CACHE_TTL_SECONDS")
+    market_kline_cache_dir: str = Field(default="", alias="MARKET_KLINE_CACHE_DIR")
     scheduler_enabled: bool = Field(default=True, alias="SCHEDULER_ENABLED")
     akshare_update_cron: str = Field(default="0 */6 * * *", alias="AKSHARE_UPDATE_CRON")
     text2cypher_max_limit: int = Field(default=100, alias="TEXT2CYPHER_MAX_LIMIT")
