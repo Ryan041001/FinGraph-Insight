@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     llm_model_grok: str = Field(default="grok-4.20-fast", alias="LLM_MODEL_GROK")
     llm_enabled: bool = Field(default=False, alias="LLM_ENABLED")
     graph_backend: str = Field(default="memory", alias="GRAPH_BACKEND")
+    market_live_enabled: bool = Field(default=False, alias="MARKET_LIVE_ENABLED")
     scheduler_enabled: bool = Field(default=True, alias="SCHEDULER_ENABLED")
     text2cypher_max_limit: int = Field(default=100, alias="TEXT2CYPHER_MAX_LIMIT")
     text2cypher_timeout_seconds: int = Field(default=5, alias="TEXT2CYPHER_TIMEOUT_SECONDS")

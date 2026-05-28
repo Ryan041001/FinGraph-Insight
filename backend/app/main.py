@@ -12,7 +12,7 @@ from app.services.graph_rag_service import answer_with_graph_context
 from app.services.graph_query_service import company_profile, subgraph
 from app.services.graph_runtime import import_graph_runtime
 from app.services.graph_store import graph_store
-from app.services.market_service import get_kline_mock
+from app.services.market_service import build_kline_response, get_kline_mock
 from app.services.metrics_service import default_gold_standard_path, evaluate_gold_standard
 from app.services.mock_data import sample_graph
 from app.services.scheduler_service import get_job_run, list_job_runs, run_akshare_update_mock
@@ -204,6 +204,15 @@ def get_market_kline(
     end_date: str | None = None,
     adjust: str = "qfq",
 ) -> dict:
+    if settings.market_live_enabled:
+        return build_kline_response(
+            stock_code=stock_code,
+            market=market,
+            period=period,
+            start_date=start_date,
+            end_date=end_date,
+            adjust=adjust,
+        )
     return get_kline_mock(
         stock_code=stock_code,
         market=market,
