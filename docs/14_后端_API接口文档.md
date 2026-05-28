@@ -1,23 +1,60 @@
 # 14 后端 API 接口文档
 
-服务地址：
+> 本文档对应 2026-05-29 后端调优批次,覆盖运行时稳态加固、用户视角调优与产品功能补齐。所有示例都来自真实 uvicorn live HTTP 探针。
+
+## 0. 通用约定
+
+服务地址:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-统一约定：
+请求/响应说明:
 
-- 请求和响应均为 JSON，除 `GET` 查询参数外。
-- 流式 AI 输出接口使用 SSE：`Content-Type: text/event-stream`。
-- AI 展示文本允许返回 Markdown 和受控局部 HTML。HTML 片段必须用 `<!-- html-render-start -->` / `<!-- html-render-end -->` 包裹，且只能是局部片段。
-- 流式接口的 `metadata.tool_calls` 会提供可渲染为卡片按钮的项目内动作，例如查看企业画像、展开子图、打开 K 线事件。
-- 前端默认通过 `VITE_API_BASE_URL` 配置后端地址。
-- 图结构统一使用 `GraphPayload`：`nodes` 和 `edges`。
-- 本文示例优先采用 2026-05-28 端到端测试的真实返回。
-- 本轮 live HTTP 测试已覆盖 `GRAPH_BACKEND=memory` 和 `GRAPH_BACKEND=neo4j` 两种运行态；Neo4j Community 5.26.26 本机联调通过，真实 FinancialDatasets 已落库并可查询。
+- 请求和响应均为 JSON,`GET` 用查询参数。
+- 所有路径参数会按 UTF-8 解码,前端无需额外 encode 中文。
+- 流式 AI 输出接口使用 SSE:`Content-Type: text/event-stream`。
+- AI 展示文本允许 Markdown 和受控局部 HTML 片段(必须用 `<!-- html-render-start --> ... <!-- html-render-end -->` 包裹)。
+- 流式接口的 `metadata.tool_calls` 提供项目内动作卡片(企业画像、子图、Hybrid 追问、K 线事件)。
+- 前端通过 `VITE_API_BASE_URL` 配置后端地址。
+- 图结构统一使用 `GraphPayload`:`nodes[]` 和 `edges[]`。
 
-LLM 配置：
+### 0.1 统一错误信封
+
+后端所有 4xx/5xx 响应都遵循同一种 envelope,**前端只需一套错误处理**:
+
+| 来源 | 状态码 | 形状 |
+| --- | --- | --- |
+| 路由内部抛 `HTTPException` (如 LLM、市场源、Job 不存在) | 4xx/5xx | `{ "detail": { "error": "<code>", "message": "...", ... } }` |
+| FastAPI 参数 / Pydantic 校验失败 | 422 | `{ "error": "invalid_input", "message": "请求参数校验失败。", "fields": [{ "field": "...", "message": "...", "type": "..." }] }` |
+| Text2Cypher 安全拒绝 | 400 | `{ "error": "unsafe_cypher", "message": "...", "cypher": "" }` |
+
+前端建议封装:
+
+```ts
+function pickErrorMessage(payload: any): string {
+  return payload?.detail?.message
+      ?? payload?.message
+      ?? payload?.fields?.[0]?.message
+      ?? '请求失败'
+}
+```
+
+常见错误 code:
+
+| code | 状态码 | 触发场景 |
+| --- | --- | --- |
+| `invalid_input` | 400 / 422 | 参数缺失、范围越界、类型不符 |
+| `mock_disabled` | 400 | `/extract` 请求带 `options.mock=true` |
+| `unsafe_cypher` | 400 | Text2Cypher 检测到写操作或 schema 越界 |
+| `scheduler_error` | 404 | `/jobs/{id}` 不存在 |
+| `llm_error` | 502 | 上游模型超时 / 401 / 5xx;消息中 URL 已脱敏为 `<llm endpoint>` |
+| `market_data_error` | 503 | yfinance / Yahoo Chart / AKShare 三源都失败且无 stale 缓存 |
+| `metrics_unavailable` | 503 | 未配置真实 predictor |
+| `dataset_not_found` | 404 | dataset 文件目录不存在或为空 |
+
+### 0.2 LLM 配置项(从 `.env` 读取)
 
 ```text
 OPENAI_API_KEY=...
@@ -33,23 +70,37 @@ LLM_MAX_RETRIES=1
 LLM_RETRY_BACKOFF_SECONDS=0.2
 LLM_CIRCUIT_BREAKER_FAILURES=3
 LLM_CIRCUIT_BREAKER_COOLDOWN_SECONDS=30
-MARKET_KLINE_CACHE_TTL_SECONDS=300
-MARKET_KLINE_CACHE_DIR=.cache/kline
 ```
 
-说明：后端默认使用同一个 `LLM_MODEL` 完成抽取、裁判、Text2Cypher、GraphRAG、股票研判和新闻补充；新闻补充任务只是在同一模型调用中额外附带 web search tool。可选配置 `LLM_FALLBACK_MODELS` 与 `OPENAI_FALLBACK_BASE_URLS`，当主模型或主网关出现连接错误、超时、429 或 5xx 时按候选路由降级重试。LLM 请求会附带浏览器风格 `User-Agent` 和 `Accept: application/json`；非流式调用对连接错误、超时、429 和 5xx 做有限重试，流式调用在首包前失败时也会重试；Text2Cypher、新闻和流式任务可单独配置超时；连续失败达到阈值后会短时熔断，避免每次请求都等待上游超时。
+行情与运行时:
 
-LLM JSON 响应会进行对象解析和关键字段类型校验。字段缺失或类型不符合预期时按 `llm_error` 返回，避免空答案、错误列表类型或缺失 Cypher 被误判为成功。
+```text
+GRAPH_BACKEND=memory                    # memory 或 neo4j
+NEO4J_URI / NEO4J_USER / NEO4J_PASSWORD # GRAPH_BACKEND=neo4j 必填
+MARKET_KLINE_CACHE_TTL_SECONDS=300
+MARKET_KLINE_CACHE_DIR=.cache/kline     # 进程重启可复用磁盘缓存
+SCHEDULER_ENABLED=true
+AKSHARE_UPDATE_CRON=0 */6 * * *
+CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+STOCK_ANALYSIS_CACHE_MAX_SIZE=64
+JOB_RUN_HISTORY_MAX_SIZE=50
+```
 
-Text2Cypher 仍默认执行只读、路径深度、LIMIT 和 schema 校验；LLM 生成路径会把当前图谱中真实出现的节点类型和关系类型作为额外 schema token，避免图谱扩展后静态白名单误拒，同时继续拒绝未知幻觉标签和关系。
+CORS:默认仅放行 `localhost:5173`(本地 Vite 默认端口),可配置 CSV 多源;若设置为 `*` 则 `allow_credentials` 自动关闭。
 
-AI HTML 输出约束：
+### 0.3 LLM 错误脱敏
 
-- 普通回答仍优先使用 Markdown。
-- 只有流程、对比、风险卡、摘要卡等复杂信息才插入局部 HTML。
-- 禁止完整页面框架，禁止 `<style>`、`class`、`iframe` 等。
+LLM 上游报错时,后端会把消息中的所有 URL 替换为 `<llm endpoint>`,并截断到 240 字符。前端展示原始 `message` 字段是安全的,不会泄露模型代理地址。
+
+### 0.4 AI HTML 输出约束
+
+- 普通回答优先 Markdown。
+- 仅流程/对比/卡片场景嵌入局部 HTML。
+- 禁止完整页面框架、`<style>`、`class`、`iframe`。
 - 样式必须使用内联 `style`。
-- 前端应先按 marker 切分 HTML 片段，再做 allowlist/sanitize 渲染。
+- 前端先按 `<!-- html-render-start -->` / `<!-- html-render-end -->` 切片,再 allowlist sanitize。
+
+---
 
 ## 1. 通用图结构
 
@@ -67,15 +118,13 @@ AI HTML 输出约束：
 }
 ```
 
-字段说明：
-
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `id` | string | 稳定节点 ID |
 | `label` | string | 前端展示名称 |
-| `type` | string | `Company`、`Institution`、`Person`、`Event`、`Industry` 等 |
+| `type` | string | `Company`、`Institution`、`Person`、`Event`、`Industry` |
 | `properties` | object | 业务属性 |
-| `risk_level` | string | 风险等级，默认 `normal` |
+| `risk_level` | string | 风险等级,默认 `normal` |
 
 ### 1.2 GraphEdge
 
@@ -88,39 +137,26 @@ AI HTML 输出约束：
   "label": "获得融资",
   "confidence": 0.91,
   "status": "confirmed",
-  "properties": {
-    "amount": "1200万元",
-    "round": "Pre-A轮"
-  },
+  "properties": {"amount": "1200万元", "round": "Pre-A轮"},
   "provenance": {
     "source_doc_id": "e2e_doc_20260528_002",
-    "source_text": "端测云链科技有限公司完成Pre-A轮融资，金额1200万元。",
+    "source_text": "端测云链科技有限公司完成Pre-A轮融资,金额1200万元。",
     "source": "extraction"
   }
 }
 ```
 
-字段说明：
+`status` 可能值:`confirmed`、`pending_review`、`rejected`。前端默认只展示 `confirmed`,溯源面板可展开 `pending_review`。
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `id` | string | 稳定关系 ID |
-| `source` | string | 起点节点 ID |
-| `target` | string | 终点节点 ID |
-| `type` | string | 关系类型 |
-| `label` | string | 中文展示标签 |
-| `confidence` | number | 置信度 |
-| `status` | string | `confirmed`、`pending_review`、`rejected` |
-| `properties` | object | 关系属性 |
-| `provenance` | object | 证据和来源 |
+---
 
 ## 2. 健康检查
 
 ### `GET /health`
 
-用途：检查后端、图存储和调度器状态。
+用途:检查后端、图存储和调度器状态。
 
-响应示例：
+响应:
 
 ```json
 {
@@ -130,33 +166,26 @@ AI HTML 输出约束：
 }
 ```
 
-说明：
+- `neo4j` 可能值:`memory`(默认内存)、`ok`(neo4j 探活通过)、`unavailable`(配置了 neo4j 但连不通)。
+- `scheduler` 可能值:`running`、`configured`、`disabled`。
 
-- `neo4j=memory` 表示当前运行态使用内存图存储。
-- 如果设置 `GRAPH_BACKEND=neo4j`，后端会创建 Neo4j driver 并执行连接探活；连通时返回 `neo4j=ok`，不可连时返回 `neo4j=unavailable`。
-- `GRAPH_BACKEND=neo4j` 时，企业画像、子图、路径和 Text2Cypher 只读查询会走 Neo4j reader。
+---
 
 ## 3. 数据集导入
 
 ### `POST /datasets/import`
 
-用途：导入基础图谱数据。
+请求:
 
-请求参数：
+```json
+{ "dataset": "financial_datasets" }
+```
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `dataset` | string | 否 | 仅支持 `financial_datasets`，默认 `financial_datasets` |
+| `dataset` | string | 否 | 默认且仅支持 `financial_datasets`,其它值返 400 `invalid_input` |
 
-请求示例：
-
-```json
-{
-  "dataset": "financial_datasets"
-}
-```
-
-响应示例：
+响应:
 
 ```json
 {
@@ -169,52 +198,59 @@ AI HTML 输出约束：
 }
 ```
 
-重复导入时，`nodes_created` 和 `relationships_created` 应下降为 0；Neo4j 模式会按真实 `MERGE` 结果返回 `nodes_skipped` 和 `relationships_skipped`。
+**性能特性**:
+- 首次:约 14 秒(读 Excel + 入内存图)。
+- 二次:**约 80–400 ms**,基于数据目录 mtime 自动复用 GraphPayload 缓存;`nodes_created/relationships_created` 会下降到 0,`nodes_skipped/relationships_skipped` 反映已存在的总量。
+- 前端可在用户点击按钮后立即调用一次,得到稳定的图谱基线。
+
+---
 
 ## 4. 实时抽取
 
 ### `POST /extract`
 
-用途：调用 LLM 从金融文本中抽取实体、关系和证据。
-
-请求参数：
-
-| 字段 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `text` | string | 是 | 待抽取文本 |
-| `options.self_refine` | boolean | 否 | 是否启用自修正，默认 true |
-| `options.judge` | boolean | 否 | 是否启用 LLM 裁判，默认 true |
-| `options.mock` | boolean | 否 | 保留兼容字段；业务运行时传 true 会返回 `400 mock_disabled` |
-
-请求示例：
+请求:
 
 ```json
 {
-  "text": "端测智算完成A轮融资，端测启明创投参与投资。",
-  "options": {
-    "self_refine": false,
-    "judge": false,
-    "mock": false
-  }
+  "text": "蓝海智能完成A轮融资,启明创投领投。",
+  "options": { "self_refine": false, "judge": false, "mock": false }
 }
 ```
 
-成功响应结构：
+| 字段 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `text` | string | — | 1 到 8000 字符,空字符串或超长返 422 `invalid_input` |
+| `options.self_refine` | bool | true | 启用后会触发 2 次 LLM 调用,延迟 +50% 左右 |
+| `options.judge` | bool | true | 启用裁判会再触发 1 次 LLM 调用 |
+| `options.mock` | bool | false | 传 true 直接 400 `mock_disabled` |
+
+**性能与建议**:
+
+| 配置 | LLM 调用次数 | 实测延迟范围 |
+| --- | --- | --- |
+| `self_refine=false, judge=false` | 1 | 5 – 12 秒 |
+| `self_refine=false, judge=true` | 2 | 10 – 18 秒 |
+| `self_refine=true, judge=true` (默认) | 3 | 25 – 35 秒 |
+
+前端首屏演示建议显式传 `{self_refine: false, judge: false}`,确认效果后再开启高质量模式;loading 文案至少给 30 秒预期。
+
+响应:
 
 ```json
 {
-  "document": {
-    "title": null,
-    "content_hash": "hash"
-  },
+  "document": { "title": null, "content_hash": "xxx" },
   "entities": [
     {
       "temp_id": "e1",
-      "name": "端测智算",
+      "name": "蓝海智能",
       "type": "Company",
       "resolved_id": "company_xxx",
-      "resolution_confidence": 0.9,
-      "evidence": "端测智算完成A轮融资"
+      "resolved_name": "蓝海智能",
+      "normalized_name": "蓝海智能",
+      "resolution_match_type": "normalized_name",
+      "resolution_confidence": 0.94,
+      "evidence": "蓝海智能完成A轮融资"
     }
   ],
   "relationships": [
@@ -223,11 +259,8 @@ AI HTML 输出约束：
       "head_temp_id": "e2",
       "relation": "INVESTED_IN",
       "tail_temp_id": "e3",
-      "attributes": {
-        "role": "参与投资",
-        "round": "A轮"
-      },
-      "evidence": "端测启明创投参与投资",
+      "attributes": { "role": "领投", "round": "A轮" },
+      "evidence": "启明创投领投",
       "confidence": 0.9,
       "status": "confirmed"
     }
@@ -236,88 +269,21 @@ AI HTML 输出约束：
 }
 ```
 
-说明：抽取只走真实 LLM。未配置 LLM 时返回 `502 llm_error`；`mock=true` 返回 `400 mock_disabled`。
+LLM 不可用 / 上游异常时返回 `502 llm_error`。
+
+---
 
 ## 5. 抽取结果入库
 
 ### `POST /graph/import`
 
-用途：将前端确认后的抽取结果写入图谱。
+入参用 `/extract` 的响应即可。
 
-运行态说明：
+- 所有导入先落内存图,确保 API 立即可查。
+- `GRAPH_BACKEND=neo4j` 时同步写穿到 Neo4j,响应的 `nodes_created/nodes_matched` 来自 `MERGE` 真实计数。
+- 重复调用幂等;`relationships_skipped > 0` 表示去重命中,不是失败。
 
-- 所有导入都会先写入内存图运行态，保证当前 API 查询可立即展示。
-- 当 `GRAPH_BACKEND=neo4j` 时，导入会同步调用 Neo4j writer 写穿到 Neo4j。
-- Neo4j 模式下，导入响应中的新增/跳过数量来自 Neo4j 真实写入统计。
-
-请求示例：
-
-```json
-{
-  "document": {
-    "title": "端到端测试新闻二",
-    "content_hash": "e2e_doc_20260528_002"
-  },
-  "entities": [
-    {
-      "temp_id": "e1",
-      "name": "端测云链科技有限公司",
-      "type": "Company",
-      "resolved_id": "company_e2e_cloudchain",
-      "resolution_confidence": 0.96,
-      "evidence": "端测云链科技有限公司完成Pre-A轮融资"
-    },
-    {
-      "temp_id": "e2",
-      "name": "端测高榕资本",
-      "type": "Institution",
-      "resolved_id": "institution_e2e_gaorong",
-      "resolution_confidence": 0.96,
-      "evidence": "端测高榕资本跟投"
-    },
-    {
-      "temp_id": "e3",
-      "name": "端测云链Pre-A轮融资事件",
-      "type": "Event",
-      "resolved_id": "event_e2e_prea",
-      "resolution_confidence": 0.91,
-      "evidence": "Pre-A轮融资"
-    }
-  ],
-  "relationships": [
-    {
-      "temp_id": "r1",
-      "head_temp_id": "e2",
-      "relation": "INVESTED_IN",
-      "tail_temp_id": "e3",
-      "attributes": {
-        "role": "跟投",
-        "round": "Pre-A轮",
-        "amount": "1200万元"
-      },
-      "evidence": "端测高榕资本跟投端测云链科技有限公司Pre-A轮融资，金额1200万元。",
-      "confidence": 0.91,
-      "status": "confirmed"
-    },
-    {
-      "temp_id": "r2",
-      "head_temp_id": "e1",
-      "relation": "RECEIVED_FUNDING",
-      "tail_temp_id": "e3",
-      "attributes": {
-        "round": "Pre-A轮",
-        "amount": "1200万元"
-      },
-      "evidence": "端测云链科技有限公司完成Pre-A轮融资，金额1200万元。",
-      "confidence": 0.91,
-      "status": "confirmed"
-    }
-  ],
-  "warnings": []
-}
-```
-
-首次响应：
+响应:
 
 ```json
 {
@@ -329,41 +295,27 @@ AI HTML 输出约束：
 }
 ```
 
-重复响应：
-
-```json
-{
-  "nodes_created": 0,
-  "nodes_matched": 3,
-  "relationships_created": 0,
-  "relationships_skipped": 2,
-  "status": "success"
-}
-```
+---
 
 ## 6. 企业画像
 
 ### `GET /graph/company/{name}`
 
-查询参数：
+查询参数:
 
-| 参数 | 类型 | 默认 | 说明 |
-| --- | --- | --- | --- |
-| `depth` | number | 2 | 查询深度，服务端最多按 3 处理 |
-| `include_pending` | boolean | false | 当前接口接收但未实际使用 |
+| 参数 | 类型 | 默认 | 范围 | 说明 |
+| --- | --- | --- | --- | --- |
+| `depth` | int | 2 | 1-3 | 越界返 422 `invalid_input` |
+| `include_pending` | bool | false | — | 当前未实际使用 |
 
-请求示例：
+**模糊匹配**:精确匹配失败时,自动尝试 substring 匹配。`/graph/company/邦盛` 能命中 `邦盛科技股份有限公司`。
 
-```text
-GET /graph/company/端测云链科技有限公司?depth=2
-```
-
-响应示例：
+响应:
 
 ```json
 {
   "company": {
-    "id": "company_e2e_cloudchain",
+    "id": "company_xxx",
     "name": "端测云链科技有限公司",
     "industry": "未知",
     "legal_representative": "未知"
@@ -376,75 +328,89 @@ GET /graph/company/端测云链科技有限公司?depth=2
     "risk_flags": [],
     "depth": 2
   },
-  "graph": {
-    "nodes": [],
-    "edges": []
-  }
+  "graph": { "nodes": [...], "edges": [...] },
+  "found": true
 }
 ```
 
-前端重点字段：
+新增字段:
 
-- `company.name`
-- `company.industry`
-- `company.legal_representative`
-- `profile.investors`
-- `profile.events`
-- `graph.nodes`
-- `graph.edges`
+- **`found`**: `true` 表示图谱里存在该实体且有节点/边;`false` 表示未匹配。前端可一次判断,避免依靠 `graph.nodes.length === 0`(歧义)。
 
-## 7. 子图查询
+`profile.shareholders / hidden_relations / risk_flags` 目前**始终为空数组**(数据集不提供股权比例与风险标记),前端建议默认折叠这些 section 或显示"数据集未提供"。
 
-### `GET /graph/subgraph`
+---
 
-查询参数：
+## 7. 企业检索(新增)
 
-| 参数 | 类型 | 必填 | 默认 | 说明 |
+### `GET /graph/companies`
+
+用途:为前端"企业搜索框"提供候选列表,解决用户进来不知道能查什么。
+
+查询参数:
+
+| 参数 | 类型 | 默认 | 范围 | 说明 |
 | --- | --- | --- | --- | --- |
-| `entity` | string | 是 | - | 起始实体名称 |
-| `depth` | number | 否 | 2 | 查询深度 |
-| `limit` | number | 否 | 80 | 最大节点/边数量 |
+| `q` | string | "" | — | 模糊关键字,留空返回前 N 条 |
+| `limit` | int | 20 | 1-100 | 越界返 422 |
 
-请求示例：
+排序规则:**精确匹配 → 前缀匹配 → 包含匹配**,均按图谱原始顺序。
 
-```text
-GET /graph/subgraph?entity=端测云链科技有限公司&depth=2&limit=20
-```
-
-响应示例：
+响应:
 
 ```json
 {
-  "nodes": [
-    {"id": "company_e2e_cloudchain", "label": "端测云链科技有限公司", "type": "Company"}
-  ],
-  "edges": [
-    {"id": "rel_4ce733c52a825c23", "type": "RECEIVED_FUNDING", "label": "获得融资"}
+  "query": "邦盛",
+  "total": 1,
+  "companies": [
+    { "id": "company_0baf1af79a1c1f67", "name": "邦盛科技", "industry": "未知" }
   ]
 }
 ```
 
-本次测试返回：`nodes=3`，`edges=2`。
+前端用法建议:
 
-## 8. 路径查询
+- 搜索框 debounce 300ms 调用一次。
+- 拿到 `companies[].name` 后再点跳转 `/graph/company/{name}`。
+
+---
+
+## 8. 子图查询
+
+### `GET /graph/subgraph`
+
+| 参数 | 类型 | 必填 | 默认 | 范围 |
+| --- | --- | --- | --- | --- |
+| `entity` | string | 是 | — | — |
+| `depth` | int | 否 | 2 | 1-3 |
+| `limit` | int | 否 | 80 | 1-200 |
+
+`depth` 或 `limit` 越界返 422 `invalid_input`(信封含 `fields[].field=query.depth`)。
+
+响应直接是 `GraphPayload`:
+
+```json
+{
+  "nodes": [{"id": "company_xxx", "label": "...", "type": "Company"}],
+  "edges": [{"id": "rel_xxx", "source": "...", "target": "...", "type": "RECEIVED_FUNDING"}]
+}
+```
+
+---
+
+## 9. 路径查询
 
 ### `GET /graph/path`
 
-查询参数：
-
-| 参数 | 类型 | 必填 | 默认 | 说明 |
+| 参数 | 类型 | 必填 | 默认 | 范围 |
 | --- | --- | --- | --- | --- |
-| `source` | string | 是 | - | 起点实体名称 |
-| `target` | string | 是 | - | 终点实体名称 |
-| `max_depth` | number | 否 | 4 | 最大路径深度，内存实现最多 4 |
+| `source` | string | 是 | — | — |
+| `target` | string | 是 | — | — |
+| `max_depth` | int | 否 | 4 | 1-4 |
 
-请求示例：
+**返回所有最短长度的路径**(最多 10 条),不再只返一条。同源到目标点之间可能存在多个等长路径,前端可全部画在画布上。
 
-```text
-GET /graph/path?source=端测高榕资本&target=端测云链科技有限公司&max_depth=3
-```
-
-响应示例：
+响应:
 
 ```json
 {
@@ -462,90 +428,68 @@ GET /graph/path?source=端测高榕资本&target=端测云链科技有限公司&
 }
 ```
 
-## 9. GraphRAG 问答
+`source == target` 时返回 `length=0` 的自环路径。
+
+---
+
+## 10. GraphRAG 问答
 
 ### `POST /qa/graph-rag`
 
-用途：基于目标实体子图调用 LLM 回答问题。
+请求:
 
-请求参数：
+```json
+{ "question": "邦盛科技:这家公司有哪些投资方?" }
+```
 
-| 字段 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `question` | string | 是 | 问题。建议格式：`公司名：问题内容` |
+**问题格式**:
 
-请求示例：
+- 推荐格式:`公司名:问题内容` (中英文冒号都行),明确告诉后端目标实体。
+- 兼容格式:无冒号时,后端会从问题里**自动搜索图谱中已存在的公司名**作为目标实体,例如 `量子云链科技最近的融资？` 会自动识别 `量子云链科技`。
+- 实在识别不到时使用 `该企业` 兜底,supporting_graph 为空,LLM 仍会按"图中无相关信息"回答。
+
+响应:
 
 ```json
 {
-  "question": "端测星河数据有限公司：它有哪些融资关系？"
+  "answer": "邦盛科技在B/B+/C/战略轮共获得 11 家机构投资...",
+  "entities": ["邦盛科技", ...],
+  "supporting_graph": { "nodes": [...], "edges": [...] },
+  "citations": [...],
+  "document_context": [...],
+  "retrieval": { "mode": "hybrid", "llm_used": true, "answer_source": "llm" }
 }
 ```
 
-真实响应核心：
-
-```json
-{
-  "answer": "端测星河数据有限公司在B轮融资中获得端测红杉资本领投的3000万元融资。",
-  "entities": ["端测星河数据有限公司", "端测星河数据B轮融资事件", "端测红杉资本"],
-  "supporting_graph": {
-    "nodes": [],
-    "edges": []
-  },
-  "citations": [],
-  "retrieval": {
-    "mode": "hybrid",
-    "llm_used": true,
-    "answer_source": "llm"
-  }
-}
-```
-
-注意：该接口依赖外部 LLM，失败时返回 502。
+失败返 `502 llm_error`(URL 已脱敏)。
 
 ### `POST /qa/graph-rag/stream`
 
-用途：GraphRAG 流式问答，给前端逐字显示 AI 回答。
+SSE 输出,适合前端逐字展示。
 
-请求体同 `/qa/graph-rag`。
-
-响应类型：
-
-```text
-Content-Type: text/event-stream
-```
-
-SSE 事件格式：
+事件:
 
 ```text
 event: metadata
-data: {"supporting_graph":{"nodes":[],"edges":[]},"citations":[],"tool_calls":[{"id":"open-company-profile","label":"查看企业画像","method":"GET","endpoint":"/graph/company/端测云链科技有限公司"}],"retrieval":{"mode":"hybrid","llm_used":true,"answer_source":"llm_stream"}}
+data: {"supporting_graph":...,"citations":[],"tool_calls":[...],"retrieval":{...}}
 
-event: delta
-data: {"text":"根据图谱，"}
-
-event: delta
-data: {"text":"该企业存在融资关系。"}
-
-event: done
-data: {"text":"根据图谱，该企业存在融资关系。"}
-```
-
-等待上游模型首 token 时，后端会发送心跳事件，前端可忽略或显示轻量等待态：
-
-```text
 event: ping
 data: {"status":"waiting"}
-```
 
-错误事件：
+event: delta
+data: {"text":"##"}
 
-```text
+event: delta
+data: {"text":" 邦盛"}
+
+event: done
+data: {"text":"## 邦盛科技投资方..."}
+
 event: error
-data: {"error":"llm_error","message":"..."}
+data: {"error":"llm_error","message":"模型服务暂不可用"}
 ```
 
-`metadata.tool_calls` 结构：
+`metadata.tool_calls`:
 
 ```json
 [
@@ -555,100 +499,51 @@ data: {"error":"llm_error","message":"..."}
     "description": "查看该实体 2 跳内的节点、关系和证据。",
     "method": "GET",
     "endpoint": "/graph/subgraph",
-    "params": {"entity": "端测云链科技有限公司", "depth": 2, "limit": 80}
+    "params": {"entity": "邦盛科技", "depth": 2, "limit": 80}
   }
 ]
 ```
 
-## 10. Hybrid RAG
+---
+
+## 11. Hybrid RAG
 
 ### `POST /qa/hybrid-rag`
 
-用途：结合图谱子图和已索引文档片段进行问答。
-
-请求参数：
-
-| 字段 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `question` | string | 是 | 用户问题 |
-| `entity` | string | 否 | 指定图谱实体；不传时服务端从问题中抽取 |
-
-请求示例：
+请求:
 
 ```json
-{
-  "question": "端测云链科技有限公司：融资金额是多少？",
-  "entity": "端测云链科技有限公司"
-}
+{ "question": "邦盛科技融资情况", "entity": "邦盛科技" }
 ```
+
+`entity` 可选;不传时按 GraphRAG 同样规则自动识别。
+
+响应结构与 GraphRAG 类似,额外带 `document_context`(文档向量检索结果)和 `retrieval.document_chunks`。
 
 ### `POST /qa/hybrid-rag/stream`
 
-用途：Hybrid RAG 流式问答，metadata 额外包含 `document_context`。
+SSE 同上,`metadata` 额外含 `document_context`。
 
-请求体同 `/qa/hybrid-rag`。
+---
 
-SSE 事件同 `/qa/graph-rag/stream`：
-
-- `metadata`
-- `ping`
-- `delta`
-- `done`
-- `error`
-
-真实响应核心：
-
-```json
-{
-  "answer": "端测云链科技有限公司的融资金额是1200万元。",
-  "retrieval": {
-    "graph_nodes": 3,
-    "graph_edges": 2,
-    "document_chunks": 2,
-    "llm_used": true,
-    "answer_source": "llm"
-  },
-  "citations": [
-    {
-      "source_text": "端测云链科技有限公司完成Pre-A轮融资，金额1200万元。"
-    }
-  ]
-}
-```
-
-## 11. Text2Cypher
+## 12. Text2Cypher
 
 ### `POST /qa/text2cypher`
 
-用途：把中文问题转为只读 Cypher，并返回表格和图结构。
-
-请求参数：
-
-| 字段 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `question` | string | 是 | 中文查询问题 |
-
-安全拒绝示例：
+请求:
 
 ```json
-{
-  "question": "删除所有节点"
-}
+{ "question": "查询邦盛科技的所有投资方" }
 ```
 
-响应：
+后端流程:
 
-```json
-{
-  "error": "unsafe_cypher",
-  "message": "生成的 Cypher 包含写操作意图，已拒绝执行。",
-  "cypher": ""
-}
-```
+1. 写意图检查(`删除/创建/修改/更新/清空/写入` 等关键词 → 400 `unsafe_cypher`)。
+2. **LLM system prompt 已注入实际图谱 schema**(ALLOWED_LABELS + ALLOWED_RELATIONSHIPS + 运行时新增的 label/relation),减少 LLM 生成幻觉关系被拒。
+3. Cypher sanitize:只读、路径深度 ≤ 3、自动加 `LIMIT 50`、schema 白名单。
+4. `GRAPH_BACKEND=neo4j` 时执行真实只读 Cypher 并返表;否则只返 Cypher 文本 + `note` 提示。
 
-状态码：`400`
-
-读查询成功结构：
+成功响应(Neo4j 模式):
 
 ```json
 {
@@ -657,95 +552,106 @@ SSE 事件同 `/qa/graph-rag/stream`：
     "passed": true,
     "rules": ["read_only", "path_depth_checked", "schema_checked", "limit_added"]
   },
-  "table": {
-    "columns": [],
-    "rows": []
-  },
-  "graph": {
-    "nodes": [],
-    "edges": []
-  }
+  "table": { "columns": ["c"], "rows": [...] },
+  "graph": { "nodes": [...], "edges": [...] }
 }
 ```
 
-说明：Text2Cypher 会拒绝写操作、过深路径、超大 LIMIT，以及不在项目 schema 白名单中的 label 或关系类型。LLM 返回带 Markdown 代码块或前后缀说明的 JSON 时，后端会提取第一个 JSON object 后再校验。
-
-LLM 不可用响应：
+**memory 模式响应**(关键差异):
 
 ```json
 {
-  "detail": {
-    "error": "llm_error",
-    "message": "OPENAI_API_KEY is required for LLM calls."
-  }
+  "cypher": "MATCH (c:Company {name:'邦盛科技'})<-[:INVESTED_IN]-(investor) RETURN investor LIMIT 50",
+  "safety": { "passed": true, "rules": [...] },
+  "table": { "columns": [], "rows": [] },
+  "graph": { "nodes": [], "edges": [] },
+  "note": "当前未启用 Neo4j 后端,仅返回生成的 Cypher 文本未执行;请将 GRAPH_BACKEND 切换到 neo4j 后查询。"
 }
 ```
 
-## 12. RAG 文档索引
+前端检测到 `note` 字段时建议在 cypher 展示区域下面加一行灰色文案提示用户。
+
+写操作 / 越界拒绝:
+
+```json
+{ "error": "unsafe_cypher", "message": "生成的 Cypher 包含写操作意图,已拒绝执行。", "cypher": "" }
+```
+
+状态码:400。
+
+---
+
+## 13. RAG 文档索引
 
 ### `POST /rag/documents`
 
-用途：向内存向量检索模块写入文档片段。
-
-请求参数：
-
-| 字段 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `doc_id` | string | 是 | 文档 ID |
-| `title` | string | 否 | 标题 |
-| `text` | string | 是 | 正文 |
-| `metadata` | object | 否 | 来源、日期等 |
-
-请求示例：
-
 ```json
 {
-  "doc_id": "e2e_doc_20260528_002",
-  "title": "端测云链融资新闻",
-  "text": "端测云链科技有限公司完成Pre-A轮融资，端测高榕资本跟投，融资金额1200万元。",
-  "metadata": {
-    "source": "e2e",
-    "pub_date": "2026-05-28"
-  }
+  "doc_id": "doc_xxx",
+  "title": "标题",
+  "text": "正文",
+  "metadata": { "source": "akshare", "pub_date": "2026-05-28" }
 }
 ```
 
-响应示例：
+响应:
 
 ```json
-{
-  "doc_id": "e2e_doc_20260528_002",
-  "chunks_indexed": 1,
-  "status": "success"
-}
+{ "doc_id": "doc_xxx", "chunks_indexed": 1, "status": "success" }
 ```
 
-## 13. 定时任务
+---
+
+## 14. 定时任务
 
 ### `GET /jobs`
 
-用途：查看最近任务运行记录。
+```json
+{ "jobs": [...] }
+```
 
-响应示例：
+按时间倒序;后端保留最近 `JOB_RUN_HISTORY_MAX_SIZE` 条(默认 50)。
+
+### `POST /jobs/akshare/run` ⚠️ 契约已变更(异步)
+
+**变更说明(2026-05-29)**:此接口从同步阻塞改为**立即返回 + 后台执行**。
+
+之前同步跑会卡 30 秒到 2 分钟,前端按钮 loading 体验极差;现在改为后台线程跑 pipeline,接口立即返回 `status=running` 的 JobRun,前端轮询 `/jobs/{id}` 获取最终状态。
+
+立即响应(约 300ms):
 
 ```json
 {
-  "jobs": []
+  "job_run_id": "job_20260529_013433_801797",
+  "status": "running",
+  "started_at": "2026-05-29T01:34:33",
+  "finished_at": null,
+  "new_documents": 0,
+  "new_entities": 0,
+  "new_relationships": 0,
+  "failed_items": 0
 }
 ```
 
-### `POST /jobs/akshare/run`
+前端轮询接口:
 
-用途：手动触发 AKShare 新闻抓取、抽取、裁判、入库 Pipeline。
+```ts
+const initial = await runAkshareJob()           // status === "running"
+const finalRun = await pollJob(initial.job_run_id, {
+  intervalMs: 2000,
+  timeoutMs: 180_000,
+})
+// finalRun.status ∈ {"success", "failed"}
+```
 
-成功响应结构：
+完成后的最终响应:
 
 ```json
 {
-  "job_run_id": "job_20260528_153000",
+  "job_run_id": "job_20260529_013433_801797",
   "status": "success",
-  "started_at": "2026-05-28T15:30:00",
-  "finished_at": "2026-05-28T15:30:20",
+  "started_at": "2026-05-29T01:34:33",
+  "finished_at": "2026-05-29T01:35:12",
   "new_documents": 10,
   "new_entities": 3,
   "new_relationships": 2,
@@ -753,34 +659,27 @@ LLM 不可用响应：
 }
 ```
 
-说明：该接口调用真实 AKShare fetcher 和真实 LLM extraction pipeline。外部源或 LLM 不可用时，任务会记录 `failed_items`，不会读取本地快照样例或生成假关系。
+`status` 可能值:`running` → `success` 或 `failed`。
 
 ### `GET /jobs/{job_run_id}`
 
-用途：查看单次任务详情。
-
-错误响应：
+不存在返:
 
 ```json
-{
-  "detail": {
-    "error": "scheduler_error",
-    "message": "job run not found"
-  }
-}
+{ "detail": { "error": "scheduler_error", "message": "job run not found" } }
 ```
 
-状态码：`404`
+状态码:404。
 
-## 14. 质量评测
+---
 
-### `GET /metrics/extraction`
+## 15. 质量评测
 
-### `POST /metrics/evaluate`
+### `GET /metrics/extraction`、`POST /metrics/evaluate`
 
-用途：用 `data/gold/gold_standard.json` 计算抽取指标。
+需要配置真实 predictor;未配置时返 `503 metrics_unavailable`。
 
-真实响应核心：
+真实响应核心:
 
 ```json
 {
@@ -796,185 +695,170 @@ LLM 不可用响应：
 }
 ```
 
-说明：接口需要配置真实 predictor；未配置时返回 `503 metrics_unavailable`，避免把规则 baseline 当成最终 LLM 指标。
+前端展示建议:标题写"金标准评测基线",避免被误读为模型性能。
 
-## 15. 股票研判
+---
+
+## 16. 股票研判
 
 ### `POST /analysis/stock`
 
-用途：基于图谱、基本面占位字段和消息事件生成结构化研判。
-
-请求参数：
-
-| 字段 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `stock_code` | string | 是 | 股票代码 |
-| `company_name` | string | 否 | 公司名 |
-| `depth` | number | 否 | 图谱召回深度，默认 2 |
-| `news_window_days` | number | 否 | 新闻窗口 |
-| `refresh_news` | boolean | 否 | 是否补充实时新闻 |
-| `use_llm` | boolean | 否 | 是否调用 LLM 生成结构化研判，默认 false；默认返回本地结构化摘要，避免前端等待 |
-
-请求示例：
+请求:
 
 ```json
 {
   "stock_code": "600000",
-  "company_name": "端测星河数据有限公司",
+  "company_name": "浦发银行",
   "depth": 2,
   "news_window_days": 30,
-  "refresh_news": false
+  "refresh_news": false,
+  "use_llm": false
 }
 ```
 
-成功响应结构：
+| 字段 | 类型 | 必填 | 默认 | 说明 |
+| --- | --- | --- | --- | --- |
+| `stock_code` | string | 是 | — | — |
+| `company_name` | string | 否 | stock_code | 用于关联图谱 |
+| `depth` | int | 否 | 2 | 图谱召回深度 |
+| `news_window_days` | int | 否 | 30 | — |
+| `refresh_news` | bool | 否 | false | 调用 LLM web search 补新闻 |
+| `use_llm` | bool | 否 | false | **默认不等待 LLM**;true 时生成结构化研判,失败会保留本地摘要并在 `missing_data` 中追加说明 |
+
+响应:
 
 ```json
 {
-  "target": {
-    "stock_code": "600000",
-    "company_name": "端测星河数据有限公司"
-  },
-  "fundamentals": {
-    "stock_code": "600000",
-    "company_name": "端测星河数据有限公司",
-    "industry": "未知",
-    "data_time": "local-cache"
-  },
+  "target": { "stock_code": "600000", "company_name": "浦发银行" },
+  "fundamentals": { ..., "data_time": "local-cache" },
   "news_events": [],
-  "subgraph": {
-    "nodes": [],
-    "edges": []
-  },
+  "subgraph": { "nodes": [...], "edges": [...] },
   "analysis": {
-    "summary": "结构化研判摘要",
+    "summary": "...",
     "opportunity_factors": [],
     "risk_factors": [],
     "graph_insights": [],
     "confidence": 0.75,
     "missing_data": [],
-    "disclaimer": "本结果仅用于课程项目演示和研究辅助，不构成投资建议。"
+    "disclaimer": "本结果仅用于课程项目演示和研究辅助,不构成投资建议。"
   }
 }
 ```
 
-说明：接口默认不等待 LLM，直接返回本地图谱摘要和结构化字段。需要模型生成结构化研判时传 `use_llm=true`；如果模型不可用，会保留本地摘要，并在 `analysis.missing_data` 中追加“模型研判暂不可用，已返回本地图谱摘要：...”。
+后端保留每个 `stock_code` 最近一次的研判,LRU 上限 `STOCK_ANALYSIS_CACHE_MAX_SIZE`(默认 64)。
 
 ### `GET /analysis/stock/{stock_code}/latest`
 
-用途：设计上应返回最近一次研判。
-
-当前实现行为：优先返回进程内最近一次该股票研判缓存；没有缓存时返回本地图谱摘要，不触发 LLM。
+优先读缓存;无缓存返回本地图谱摘要,不触发 LLM。
 
 ### `POST /analysis/stock/stream`
 
-用途：股票研判流式文本输出，适合前端研判卡片逐步显示。
+请求体同 `/analysis/stock`;返回 SSE 文本流。前端展示时务必保留 disclaimer。
 
-请求体同 `/analysis/stock`。
+---
 
-响应类型：
-
-```text
-Content-Type: text/event-stream
-```
-
-SSE 事件：
-
-- `metadata`：返回 `target`、`fundamentals`、`news_events`、`subgraph`、`tool_calls`。
-- `ping`：等待上游 token 时的心跳。
-- `delta`：逐段返回研判文本。
-- `done`：返回完整文本。
-- `error`：返回 LLM 错误。
-
-注意：流式接口输出的是展示文本，不是结构化 JSON；需要结构化字段时继续调用 `/analysis/stock`。
-
-## 16. K 线行情
+## 17. K 线行情
 
 ### `GET /market/kline/{stock_code}`
 
-查询参数：
-
-| 参数 | 类型 | 默认 | 说明 |
+| 参数 | 类型 | 默认 | 合法值 |
 | --- | --- | --- | --- |
-| `market` | string | `A` | 市场 |
-| `period` | string | `daily` | 周期 |
-| `start_date` | string | 近 180 天 | 起始日期 |
-| `end_date` | string | 当前日期 | 结束日期 |
-| `adjust` | string | `qfq` | 复权方式 |
+| `market` | string | `A` | `A`、`HK`(其它返 422) |
+| `period` | string | `daily` | `daily`、`weekly`、`monthly`(其它返 422) |
+| `adjust` | string | `qfq` | `qfq`、`hfq`、`""`(其它返 422) |
+| `start_date` | string | 近 180 天 | `YYYY-MM-DD` 或 `YYYYMMDD` |
+| `end_date` | string | 当前日期 | 同上 |
+| `company_name` | string | — | **可选**,提供后端从图谱拉取该公司 Event 节点拼到 `events[]` |
 
-请求示例：
-
-```text
-GET /market/kline/600000?market=A&period=daily&start_date=2024-01-01&end_date=2024-01-10&adjust=qfq
-```
-
-真实响应核心：
+响应:
 
 ```json
 {
-  "stock_code": "600000",
+  "stock_code": "000001",
   "market": "A",
-  "display_code": "600000.SH",
-  "company_name": "600000",
+  "display_code": "000001",
+  "company_name": "000001",
   "period": "daily",
   "adjust": "qfq",
   "cached": false,
   "data_source": "yfinance",
-  "start_date": "2024-01-01",
-  "end_date": "2024-01-10",
+  "start_date": null,
+  "end_date": null,
   "kline_data": [
-    {
-      "date": "2024-01-02",
-      "open": 7.23,
-      "close": 7.45,
-      "high": 7.5,
-      "low": 7.18,
-      "volume": 123,
-      "amount": 456.7
-    }
+    {"date": "2025-12-01", "open": 11.6, "close": 11.69, "high": 11.7, "low": 11.53, "volume": 103732271, "amount": 0}
   ],
-  "events": []
+  "events": [
+    {
+      "date": "2024-03-15",
+      "label": "测试上市公司A轮融资",
+      "event_type": "funding",
+      "round": "A轮",
+      "amount": "1亿元",
+      "description": "...",
+      "source": "SmoothNLP..."
+    }
+  ]
 }
 ```
 
-说明：行情优先来自 yfinance；yfinance 不可用时会请求 Yahoo Chart 作为第二真实源，仍不可用时再尝试 AKShare。成功时 `data_source` 可能是 `yfinance`、`yahoo_chart` 或 `akshare`。同参请求在 `MARKET_KLINE_CACHE_TTL_SECONDS` 内复用缓存并返回 `cached=true`；配置 `MARKET_KLINE_CACHE_DIR` 后，进程重启后也能从磁盘缓存恢复。缓存过期后如果三个真实源都失败，会返回最近一次真实缓存并标记 `cache_status=stale_if_error`；没有可用真实缓存时返回 `503 market_data_error`，不返回 mock K 线。
+**关键字段**:
 
-## 17. 错误格式
+- `data_source`:`yfinance`(主)、`yahoo_chart`(备 1)、`akshare`(备 2)。展示文案根据值切换。
+- `cached`:true 表示命中 K 线缓存(进程内或磁盘);`cache_status=stale_if_error` 表示三源都失败但返回了过期缓存,UI 应显眼标记。
+- `events`:**仅当请求带 `company_name` 时填充**,从图谱中该公司关联的 `Event` 节点拼接,按日期升序;无 `company_name` 时为空数组。
+- 历史 bug 修复:之前 yfinance 路径返回的 `date` 全部是 `"0"`,本轮已修。
 
-### LLM 错误
+三源都失败且无 stale 缓存:`503 market_data_error`。
+
+---
+
+## 18. 完整错误格式速查
 
 ```json
+// 422 参数校验
 {
-  "detail": {
-    "error": "llm_error",
-    "message": "The read operation timed out"
-  }
+  "error": "invalid_input",
+  "message": "请求参数校验失败。",
+  "fields": [
+    { "field": "query.depth", "message": "Input should be greater than or equal to 1", "type": "greater_than_equal" }
+  ]
 }
+
+// 400 业务拒绝
+{ "error": "unsafe_cypher", "message": "...", "cypher": "" }
+{ "detail": { "error": "invalid_input", "message": "unsupported dataset: xxx" } }
+{ "detail": { "error": "mock_disabled", "message": "..." } }
+
+// 404
+{ "detail": { "error": "scheduler_error", "message": "job run not found" } }
+{ "detail": { "error": "dataset_not_found", "message": "..." } }
+
+// 502
+{ "detail": { "error": "llm_error", "message": "Client error '401 Unauthorized' for url '<llm endpoint>'..." } }
+
+// 503
+{ "detail": { "error": "market_data_error", "message": "..." } }
+{ "detail": { "error": "metrics_unavailable", "message": "..." } }
 ```
 
-状态码：`502`
+---
 
-### Text2Cypher 安全错误
+## 19. 性能与时延参考
 
-```json
-{
-  "error": "unsafe_cypher",
-  "message": "生成的 Cypher 包含写操作意图，已拒绝执行。",
-  "cypher": ""
-}
-```
+| 接口 | 典型时延 | 备注 |
+| --- | --- | --- |
+| `GET /health` | < 400 ms | Neo4j 模式会做连通性探活 |
+| `POST /datasets/import` 首次 | 12 – 18 秒 | 读 Excel + 全量入图 |
+| `POST /datasets/import` 二次 | < 500 ms | 基于 mtime 缓存命中 |
+| `GET /graph/company/{name}` | < 500 ms | memory 模式 |
+| `GET /graph/subgraph` | < 500 ms | memory 模式 |
+| `POST /extract` 快配置 | 5 – 12 秒 | `self_refine=false, judge=false` |
+| `POST /extract` 默认 | 25 – 35 秒 | `self_refine=true, judge=true` |
+| `POST /qa/graph-rag` | 5 – 10 秒 | 单次 LLM |
+| `POST /qa/graph-rag/stream` | 首 token 2 – 5 秒 | 总时长视答案长度 |
+| `POST /qa/text2cypher` | 4 – 8 秒 | 含 Cypher 校验 |
+| `POST /jobs/akshare/run` | < 500 ms 立即返回 | 异步,真实 pipeline 在后台 |
+| `GET /market/kline/{code}` 首次 | 1 – 3 秒 | yfinance |
+| `GET /market/kline/{code}` 缓存 | < 100 ms | TTL 内 |
 
-状态码：`400`
-
-### Job 不存在
-
-```json
-{
-  "detail": {
-    "error": "scheduler_error",
-    "message": "job run not found"
-  }
-}
-```
-
-状态码：`404`
+前端的所有 loading 提示应基于这张表给用户预期(尤其 extract 默认模式)。
