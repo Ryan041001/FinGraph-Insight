@@ -10,6 +10,23 @@ from app.models.api import GraphEdge, GraphNode, GraphPayload
 from app.services.graph_store import stable_id, node_id
 
 
+_UNDISCLOSED_TOKENS = ("未披露", "未公开", "未透露")
+
+
+def _evidence_confidence(amount: str, date: str) -> float:
+    amount_text = (amount or "").strip()
+    date_text = (date or "").strip()
+    has_amount = bool(amount_text)
+    has_date = bool(date_text)
+    if has_amount and any(token in amount_text for token in _UNDISCLOSED_TOKENS):
+        return 0.75
+    if has_amount and has_date:
+        return 1.0
+    if has_amount or has_date:
+        return 0.85
+    return 0.7
+
+
 def load_graph_payload_from_json(path: str | Path) -> GraphPayload:
     graph_path = Path(path)
     payload = json.loads(graph_path.read_text(encoding="utf-8"))
@@ -111,12 +128,14 @@ def _load_investment_event_table(frame: pd.DataFrame, table_path: Path) -> Graph
         )
 
         received_id = f"rel_{stable_id(company_id, 'RECEIVED_FUNDING', event_id, table_path.name)}"
+        evidence_score = _evidence_confidence(amount, event_date)
         edges[received_id] = GraphEdge(
             id=received_id,
             source=company_id,
             target=event_id,
             type="RECEIVED_FUNDING",
             label="获得融资",
+            confidence=evidence_score,
             properties={"round": round_name, "amount": amount, "date": event_date},
             provenance={"source": table_path.name, "source_text": _row_text(row)},
         )
@@ -137,6 +156,7 @@ def _load_investment_event_table(frame: pd.DataFrame, table_path: Path) -> Graph
                     target=event_id,
                     type="INVESTED_IN",
                     label="投资",
+                    confidence=evidence_score,
                     properties={"round": round_name, "amount": amount, "date": event_date},
                     provenance={"source": table_path.name, "source_text": _row_text(row)},
                 )
@@ -239,12 +259,14 @@ def _load_generic_investment_table(frame: pd.DataFrame, table_path: Path) -> Gra
         )
 
         received_id = f"rel_{stable_id(company_id, 'RECEIVED_FUNDING', event_id, table_path.name)}"
+        evidence_score = _evidence_confidence(amount, event_date)
         edges[received_id] = GraphEdge(
             id=received_id,
             source=company_id,
             target=event_id,
             type="RECEIVED_FUNDING",
             label="获得融资",
+            confidence=evidence_score,
             properties={"round": resolved_round, "amount": amount, "date": event_date},
             provenance={"source": table_path.name, "source_text": _row_text(row)},
         )
@@ -264,6 +286,7 @@ def _load_generic_investment_table(frame: pd.DataFrame, table_path: Path) -> Gra
                 target=event_id,
                 type="INVESTED_IN",
                 label="投资",
+                confidence=evidence_score,
                 properties={"round": round_name, "amount": amount, "date": event_date},
                 provenance={"source": table_path.name, "source_text": _row_text(row)},
             )

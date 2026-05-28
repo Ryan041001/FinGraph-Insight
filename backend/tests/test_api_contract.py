@@ -770,6 +770,61 @@ def test_graph_path_returns_multiple_paths_when_available():
     paths = response.json()["paths"]
     assert len(paths) >= 2
 
+    first = paths[0]
+    assert "summary" in first
+    summary = first["summary"]
+    assert summary["hop_count"] == first["length"]
+    assert summary["relationship_counts"]
+    assert any(event["label"].startswith("事件") for event in summary["intermediate_events"])
+
+
+def test_graph_common_investors_returns_overlap_between_companies():
+    from app.services.graph_store import graph_store
+    from app.models.api import GraphEdge, GraphNode, GraphPayload
+
+    graph_store.clear()
+    graph_store.import_graph(
+        GraphPayload(
+            nodes=[
+                GraphNode(id="company_alpha", label="阿尔法科技", type="Company"),
+                GraphNode(id="company_beta", label="贝塔科技", type="Company"),
+                GraphNode(id="company_gamma", label="伽马科技", type="Company"),
+                GraphNode(id="event_alpha_a", label="阿尔法A轮", type="Event", properties={"round": "A轮", "date": "2023-01-01"}),
+                GraphNode(id="event_beta_a", label="贝塔A轮", type="Event", properties={"round": "A轮", "date": "2023-05-01"}),
+                GraphNode(id="event_gamma_a", label="伽马A轮", type="Event", properties={"round": "A轮", "date": "2023-08-01"}),
+                GraphNode(id="institution_shared", label="共投资本", type="Institution"),
+                GraphNode(id="institution_solo", label="独投资本", type="Institution"),
+            ],
+            edges=[
+                GraphEdge(id="rel_alpha_a", source="company_alpha", target="event_alpha_a", type="RECEIVED_FUNDING", label="获得融资"),
+                GraphEdge(id="rel_beta_a", source="company_beta", target="event_beta_a", type="RECEIVED_FUNDING", label="获得融资"),
+                GraphEdge(id="rel_gamma_a", source="company_gamma", target="event_gamma_a", type="RECEIVED_FUNDING", label="获得融资"),
+                GraphEdge(id="rel_shared_alpha", source="institution_shared", target="event_alpha_a", type="INVESTED_IN", label="投资"),
+                GraphEdge(id="rel_shared_beta", source="institution_shared", target="event_beta_a", type="INVESTED_IN", label="投资"),
+                GraphEdge(id="rel_solo_alpha", source="institution_solo", target="event_alpha_a", type="INVESTED_IN", label="投资"),
+                GraphEdge(id="rel_shared_gamma", source="institution_shared", target="event_gamma_a", type="INVESTED_IN", label="投资"),
+            ],
+        )
+    )
+
+    response = client.get("/graph/common-investors", params={"companies": "阿尔法科技,贝塔科技"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["investors"][0]["investor"]["name"] == "共投资本"
+    assert payload["investors"][0]["shared_company_count"] == 2
+
+    triple = client.get("/graph/common-investors", params={"companies": "阿尔法科技,贝塔科技,伽马科技"})
+    assert triple.json()["investors"][0]["investor"]["name"] == "共投资本"
+
+
+def test_graph_common_investors_rejects_single_company():
+    response = client.get("/graph/common-investors", params={"companies": "邦盛科技"})
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "invalid_input"
+
 
 def test_kline_response_attaches_company_events(monkeypatch):
     from app.services.graph_store import graph_store

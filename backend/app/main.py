@@ -290,6 +290,25 @@ def search_companies(
     }
 
 
+@app.get("/graph/common-investors")
+def common_investors(
+    companies: str = Query(..., description="多个公司名用逗号分隔，至少 2 个"),
+    limit: int = Query(50, ge=1, le=200),
+) -> dict:
+    company_names = [name.strip() for name in companies.split(",") if name.strip()]
+    if len(company_names) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_input", "message": "companies 至少需要传入 2 个公司名（逗号分隔）。"},
+        )
+    matches = graph_store.common_investors(company_names, limit=limit)
+    return {
+        "companies": company_names,
+        "total": len(matches),
+        "investors": matches,
+    }
+
+
 @app.get("/graph/subgraph")
 def get_subgraph(
     entity: str,

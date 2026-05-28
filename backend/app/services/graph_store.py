@@ -298,14 +298,111 @@ class InMemoryGraphStore:
         return GraphPayload(nodes=nodes, edges=list(selected_edges.values()))
 
     def _path_payload(self, node_ids: list[str], edge_ids: list[str]) -> dict[str, Any]:
+        nodes = [self._nodes[node_id].model_dump() for node_id in node_ids if node_id in self._nodes]
+        edges = [self._edges[edge_id].model_dump() for edge_id in edge_ids if edge_id in self._edges]
         return {
-            "nodes": [self._nodes[node_id].model_dump() for node_id in node_ids if node_id in self._nodes],
-            "edges": [self._edges[edge_id].model_dump() for edge_id in edge_ids if edge_id in self._edges],
+            "nodes": nodes,
+            "edges": edges,
             "length": len(edge_ids),
+            "summary": self._summarize_path(nodes, edges),
         }
 
     @staticmethod
+    def _summarize_path(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> dict[str, Any]:
+        relationship_counts: dict[str, int] = {}
+        for edge in edges:
+            etype = edge.get("type", "")
+            if etype:
+                relationship_counts[etype] = relationship_counts.get(etype, 0) + 1
+        intermediate_nodes = nodes[1:-1] if len(nodes) > 2 else []
+        intermediate_events = [
+            {"id": node["id"], "label": node["label"], "properties": node.get("properties", {})}
+            for node in intermediate_nodes
+            if node.get("type") == "Event"
+        ]
+        intermediate_actors = [
+            {"id": node["id"], "label": node["label"], "type": node.get("type", "")}
+            for node in intermediate_nodes
+            if node.get("type") in {"Institution", "Company"}
+        ]
+        return {
+            "relationship_counts": relationship_counts,
+            "intermediate_events": intermediate_events,
+            "intermediate_actors": intermediate_actors,
+            "hop_count": len(edges),
+        }
+
+    def common_investors(self, company_names: list[str], limit: int = 50) -> list[dict[str, Any]]:
+        with self._lock:
+            resolved = [(name, self._find_company(name)) for name in company_names]
+            present = [(name, node) for name, node in resolved if node is not None]
+            if len(present) < 2 or len(present) != len(resolved):
+                return []
+
+            company_to_events: dict[str, set[str]] = {}
+            for name, node in present:
+                event_ids: set[str] = set()
+                for edge in self._edges.values():
+                    if edge.type != "RECEIVED_FUNDING":
+                        continue
+                    if edge.source == node.id and edge.target in self._nodes and self._nodes[edge.target].type == "Event":
+                        event_ids.add(edge.target)
+                company_to_events[node.id] = event_ids
+
+            investor_to_company_events: dict[str, dict[str, set[str]]] = {}
+            for edge in self._edges.values():
+                if edge.type != "INVESTED_IN":
+                    continue
+                investor_id = edge.source
+                event_id = edge.target
+                if event_id not in self._nodes:
+                    continue
+                for company_node_id, event_ids in company_to_events.items():
+                    if event_id in event_ids:
+                        bucket = investor_to_company_events.setdefault(investor_id, {})
+                        bucket.setdefault(company_node_id, set()).add(event_id)
+
+            results: list[dict[str, Any]] = []
+            present_ids = {node.id for _, node in present}
+            for investor_id, company_event_map in investor_to_company_events.items():
+                if not present_ids.issubset(company_event_map.keys()):
+                    continue
+                investor_node = self._nodes.get(investor_id)
+                if investor_node is None:
+                    continue
+                shared_events: list[dict[str, Any]] = []
+                for event_id_set in company_event_map.values():
+                    for event_id in event_id_set:
+                        event_node = self._nodes.get(event_id)
+                        if event_node is None:
+                            continue
+                        shared_events.append(
+                            {
+                                "id": event_node.id,
+                                "label": event_node.label,
+                                "round": event_node.properties.get("round", ""),
+                                "date": event_node.properties.get("date", ""),
+                            }
+                        )
+                results.append(
+                    {
+                        "investor": {
+                            "id": investor_node.id,
+                            "name": investor_node.label,
+                            "type": investor_node.type,
+                        },
+                        "shared_company_count": len(present_ids),
+                        "shared_events": shared_events,
+                    }
+                )
+
+            results.sort(key=lambda item: -len(item["shared_events"]))
+            return results[:limit]
+
+    @staticmethod
     def _profile_from_graph(name: str, graph: GraphPayload, depth: int) -> dict[str, Any]:
+        from app.services.risk_analyzer import analyze_company_risks
+
         company = next((node for node in graph.nodes if node.type == "Company"), None)
         company_properties = company.properties if company else {}
         investor_names = [
@@ -314,6 +411,7 @@ class InMemoryGraphStore:
             if node.type in {"Institution", "Company"} and node.label != name
         ]
         event_names = [node.label for node in graph.nodes if node.type == "Event"]
+        risk_flags = analyze_company_risks(name, graph)
         return {
             "company": {
                 "id": company.id if company else node_id("Company", name),
@@ -326,7 +424,7 @@ class InMemoryGraphStore:
                 "investors": investor_names,
                 "events": event_names,
                 "hidden_relations": [],
-                "risk_flags": [],
+                "risk_flags": risk_flags,
                 "depth": depth,
             },
             "graph": graph.model_dump(),
