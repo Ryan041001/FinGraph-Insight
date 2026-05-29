@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -309,10 +310,36 @@ def load_financial_dataset_directory(path: str | Path) -> GraphPayload:
     return GraphPayload(nodes=list(nodes.values()), edges=list(edges.values()))
 
 
+def _cell_to_str(value: object) -> str:
+    """Normalize a pandas cell to a clean string.
+
+    pandas often parses numeric/date columns eagerly, so a raw str() yields
+    polluted values like '1000000.0' (amount/capital) or '2019-06-03 00:00:00'
+    (date). Integer-valued floats drop the trailing '.0'; datetimes/Timestamps
+    render as 'YYYY-MM-DD'; NaN/NaT become ''.
+    """
+    if value is None:
+        return ""
+    # Guard NaN/NaT first: pd.isna handles float('nan'), pd.NaT and np.datetime64('NaT').
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass  # non-scalar (list/array) — fall through to str()
+    if isinstance(value, float):
+        return str(int(value)) if value.is_integer() else str(value)
+    if isinstance(value, (pd.Timestamp, datetime, date)):
+        return value.strftime("%Y-%m-%d")
+    text = str(value).strip()
+    return "" if text.lower() in {"nan", "nat", "none"} else text
+
+
 def _field(row: pd.Series, *names: str) -> str:
     for name in names:
-        if name in row and str(row[name]).strip():
-            return str(row[name]).strip()
+        if name in row:
+            normalized = _cell_to_str(row[name])
+            if normalized:
+                return normalized
     return ""
 
 

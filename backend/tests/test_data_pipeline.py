@@ -150,6 +150,31 @@ def test_load_real_investment_event_table_uses_financing_company_and_split_inves
     assert all("邦盛科技C轮获得等3.5亿人民币投资" in edge.provenance["source_text"] for edge in graph.edges)
 
 
+def test_numeric_amount_and_date_cells_are_not_polluted(tmp_path):
+    # When 金额 is entirely numeric, pandas parses the column as float; raw str()
+    # would yield '1000000.0'. 注册资金 likewise. Dates parsed as Timestamp must
+    # render as clean ISO, not '2019-06-03 00:00:00'.
+    table_path = tmp_path / "投资事件.csv"
+    table_path.write_text(
+        (
+            "事件资讯,投资方,融资方,融资时间,轮次,金额\n"
+            "甲公司A轮融资,乙资本,甲公司,2019-06-03,A轮,1000000\n"
+        ),
+        encoding="utf-8",
+    )
+
+    graph = load_financial_table(table_path)
+    event = next(node for node in graph.nodes if node.type == "Event")
+
+    assert event.properties["amount"] == "1000000"
+    assert ".0" not in event.properties["amount"]
+    assert event.properties["date"] == "2019-06-03"
+    assert "00:00:00" not in event.properties["date"]
+    funding_edge = next(edge for edge in graph.edges if edge.type == "RECEIVED_FUNDING")
+    assert funding_edge.properties["amount"] == "1000000"
+    assert funding_edge.properties["date"] == "2019-06-03"
+
+
 def test_load_investment_institution_table_creates_institution_only(tmp_path):
     table_path = tmp_path / "SmoothNLP投资结构数据集样本1k.csv"
     table_path.write_text(
