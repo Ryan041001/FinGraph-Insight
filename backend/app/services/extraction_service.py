@@ -181,7 +181,9 @@ def _normalize_llm_extraction(text: str, raw: dict[str, Any]) -> dict:
             continue
         resolution = entity_resolver.resolve(name, entity_type)
         temp_id = f"e{index}"
-        temp_by_name[name] = temp_id
+        # First occurrence wins: a later duplicate name must not steal an earlier
+        # entity's temp_id (which would silently rewire relationships).
+        temp_by_name.setdefault(name, temp_id)
         entities.append(
             {
                 "temp_id": temp_id,
@@ -200,17 +202,35 @@ def _normalize_llm_extraction(text: str, raw: dict[str, Any]) -> dict:
         )
 
     relationships: list[dict[str, Any]] = []
+    dropped_relationships: list[dict[str, Any]] = []
     raw_relationships = require_llm_json_list(raw, "relationships")
     for index, relationship in enumerate(raw_relationships, start=1):
         if not isinstance(relationship, dict):
             raise ValueError("LLM output field 'relationships' must contain objects.")
+        head_name = str(relationship.get("head"))
+        tail_name = str(relationship.get("tail"))
+        head_temp_id = temp_by_name.get(head_name, "")
+        tail_temp_id = temp_by_name.get(tail_name, "")
+        # Don't emit dangling edges: if either endpoint can't be matched to an
+        # extracted entity, record it as a warning and skip instead of producing
+        # a relationship with an empty head/tail that gets silently dropped on import.
+        if not head_temp_id or not tail_temp_id:
+            dropped_relationships.append(
+                {
+                    "relation": relationship.get("relation", "RELATED_TO"),
+                    "head": relationship.get("head"),
+                    "tail": relationship.get("tail"),
+                    "reason": "endpoint not found among extracted entities",
+                }
+            )
+            continue
         confidence = float(relationship.get("confidence", 0.8))
         relationships.append(
             {
                 "temp_id": f"r{index}",
-                "head_temp_id": temp_by_name.get(str(relationship.get("head")), ""),
+                "head_temp_id": head_temp_id,
                 "relation": relationship.get("relation", "RELATED_TO"),
-                "tail_temp_id": temp_by_name.get(str(relationship.get("tail")), ""),
+                "tail_temp_id": tail_temp_id,
                 "attributes": relationship.get("attributes", {}),
                 "evidence": relationship.get("evidence", cleaned_text[:120]),
                 "confidence": confidence,
@@ -221,6 +241,11 @@ def _normalize_llm_extraction(text: str, raw: dict[str, Any]) -> dict:
     warnings = raw.get("warnings", [])
     if not isinstance(warnings, list):
         raise ValueError("LLM output field 'warnings' must be a list.")
+    warnings = list(warnings)
+    for dropped in dropped_relationships:
+        warnings.append(
+            f"关系 {dropped['head']} -[{dropped['relation']}]-> {dropped['tail']} 的端点未在抽取实体中找到，已跳过。"
+        )
 
     return {
         "document": {"title": None, "content_hash": content_hash},

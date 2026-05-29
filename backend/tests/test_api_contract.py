@@ -1067,6 +1067,17 @@ def test_extract_rejects_blank_and_oversized_text():
     assert any("8000" in field["message"] for field in too_long.json()["fields"])
 
 
+def test_rag_documents_rejects_blank_and_oversized_text():
+    blank = client.post("/rag/documents", json={"doc_id": "d1", "text": "   "})
+    assert blank.status_code == 422
+    assert blank.json()["error"] == "invalid_input"
+
+    too_long = client.post("/rag/documents", json={"doc_id": "d1", "text": "a" * 50001})
+    assert too_long.status_code == 422
+    assert too_long.json()["error"] == "invalid_input"
+    assert any("50000" in field["message"] for field in too_long.json()["fields"])
+
+
 def test_company_endpoint_marks_missing_entities_with_found_false():
     from app.services.graph_store import graph_store
 

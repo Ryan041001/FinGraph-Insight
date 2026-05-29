@@ -115,6 +115,56 @@ def test_extract_with_llm_parses_structured_json():
     assert gateway.calls[0]["task"] == "extraction"
 
 
+def test_extract_with_llm_drops_dangling_relationship_and_warns():
+    gateway = FakeGateway(
+        """
+        {
+          "entities": [
+            {"name": "星河数据", "type": "Company"},
+            {"name": "红杉资本", "type": "Institution"}
+          ],
+          "relationships": [
+            {"head": "红杉资本", "relation": "INVESTED_IN", "tail": "星河数据", "confidence": 0.9},
+            {"head": "红杉资本", "relation": "INVESTED_IN", "tail": "幽灵实体", "confidence": 0.9}
+          ],
+          "warnings": []
+        }
+        """
+    )
+
+    payload = extract_with_llm("星河数据融资", gateway)
+
+    # Only the relationship whose endpoints both resolve survives.
+    assert len(payload["relationships"]) == 1
+    rel = payload["relationships"][0]
+    assert rel["head_temp_id"] and rel["tail_temp_id"]
+    # The dropped one surfaces as a warning rather than a dangling edge.
+    assert any("幽灵实体" in w for w in payload["warnings"])
+
+
+def test_extract_with_llm_duplicate_entity_name_keeps_first_temp_id():
+    gateway = FakeGateway(
+        """
+        {
+          "entities": [
+            {"name": "同名公司", "type": "Company"},
+            {"name": "同名公司", "type": "Company"},
+            {"name": "投资方X", "type": "Institution"}
+          ],
+          "relationships": [
+            {"head": "投资方X", "relation": "INVESTED_IN", "tail": "同名公司", "confidence": 0.9}
+          ],
+          "warnings": []
+        }
+        """
+    )
+
+    payload = extract_with_llm("同名公司融资", gateway)
+
+    first_company_temp = next(e["temp_id"] for e in payload["entities"] if e["name"] == "同名公司")
+    assert payload["relationships"][0]["tail_temp_id"] == first_company_temp
+
+
 def test_extract_with_llm_recovers_json_from_fenced_response():
     gateway = FakeGateway(
         """
