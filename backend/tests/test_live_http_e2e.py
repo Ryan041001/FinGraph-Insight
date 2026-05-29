@@ -11,6 +11,8 @@ import httpx
 import pytest
 
 
+pytestmark = pytest.mark.live
+
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = BACKEND_ROOT.parent
 SERVER_HOST = "127.0.0.1"

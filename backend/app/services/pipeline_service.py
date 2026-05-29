@@ -4,11 +4,14 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from app.logging_config import get_logger
 from app.models.api import JobRun
 from app.services.graph_runtime import import_extraction_payload_runtime
 from app.services.graph_store import ImportStats, stable_id
 from app.services.vector_store import InMemoryVectorStore, vector_store
 
+
+logger = get_logger(__name__)
 
 DocumentFetcher = Callable[[], list[dict[str, str]]]
 Extractor = Callable[[str], dict[str, Any]]
@@ -34,6 +37,7 @@ def run_extraction_pipeline(
     try:
         documents = fetcher()
     except Exception:
+        logger.exception("extraction pipeline fetcher failed")
         documents = []
         failed_items += 1
 
@@ -64,6 +68,7 @@ def run_extraction_pipeline(
             new_entities += stats.nodes_created
             new_relationships += stats.relationships_created
         except Exception:
+            logger.exception("extraction pipeline failed for document source=%s", document.get("source", "?"))
             failed_items += 1
 
     return JobRun(

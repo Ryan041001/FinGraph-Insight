@@ -52,15 +52,22 @@ from app.services.text2cypher_service import (
     is_write_intent,
 )
 from app.services.vector_store import vector_store
+from app.logging_config import configure_logging, get_logger
+
+
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_logging()
+    logger.info("backend starting: graph_backend=%s scheduler_enabled=%s", settings.graph_backend, settings.scheduler_enabled)
     start_scheduler()
     _start_startup_preload()
     try:
         yield
     finally:
+        logger.info("backend shutting down")
         shutdown_scheduler()
         close_neo4j_driver()
 
@@ -111,6 +118,7 @@ def _start_startup_preload() -> None:
                     "dataset_relationships": getattr(stats, "relationships_created", 0) + getattr(stats, "relationships_skipped", 0),
                 })
             except Exception as exc:
+                logger.exception("startup dataset preload failed")
                 _update_preload_state({
                     "dataset_status": "failed",
                     "dataset_finished_at": datetime.now().isoformat(timespec="seconds"),
@@ -175,6 +183,7 @@ def _get_cached_stock_analysis(stock_code: str) -> dict | None:
 
 
 def _raise_llm_error(exc: Exception) -> None:
+    logger.warning("LLM call failed: %s", exc, exc_info=True)
     raise HTTPException(
         status_code=502,
         detail={
@@ -803,6 +812,7 @@ def _sse_stream(token_stream: Iterable[str], metadata: dict) -> StreamingRespons
                 break
 
             if event_type == "error":
+                logger.warning("SSE stream failed: %s", value, exc_info=isinstance(value, BaseException))
                 yield _sse_event(
                     "error",
                     {"error": "llm_error", "message": _sanitize_llm_error_message(str(value))},

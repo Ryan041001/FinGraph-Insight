@@ -23,3 +23,8 @@ dependencies = [
 dev = [
     "pytest>=7.4",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "live: end-to-end tests that start a real server / hit real external services (akshare, neo4j, yfinance). Skip in CI with -m 'not live'.",
+]

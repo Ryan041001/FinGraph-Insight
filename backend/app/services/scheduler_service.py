@@ -3,10 +3,12 @@ from collections.abc import Callable
 from datetime import datetime
 from threading import RLock, Thread
 
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.config import settings
+from app.logging_config import get_logger
 from app.models.api import JobRun
 from app.data.akshare_fetcher import fetch_akshare_news
 from app.services.extraction_service import extract_with_llm, judge_extraction_with_llm
@@ -18,6 +20,7 @@ from app.services.pipeline_service import run_extraction_pipeline
 _job_runs: "OrderedDict[str, JobRun]" = OrderedDict()
 _job_runs_lock = RLock()
 _scheduler: BackgroundScheduler | None = None
+logger = get_logger(__name__)
 
 
 def _record_job_run(job: JobRun) -> None:
@@ -76,6 +79,7 @@ def start_akshare_update_async(
             final = completed.model_copy(update={"job_run_id": job_run_id, "started_at": started_at})
             _record_job_run(final)
         except Exception:
+            logger.exception("async akshare update job failed job_run_id=%s", job_run_id)
             _record_job_run(
                 JobRun(
                     job_run_id=job_run_id,
@@ -109,8 +113,24 @@ def build_akshare_scheduler(
         trigger=CronTrigger.from_crontab(settings.akshare_update_cron),
         id="akshare_update",
         replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=300,
     )
+    scheduler.add_listener(_on_scheduler_event, EVENT_JOB_ERROR | EVENT_JOB_MISSED)
     return scheduler
+
+
+def _on_scheduler_event(event) -> None:
+    if getattr(event, "exception", None) is not None:
+        logger.error(
+            "scheduled job %s raised: %s",
+            getattr(event, "job_id", "?"),
+            event.exception,
+            exc_info=(type(event.exception), event.exception, event.exception.__traceback__),
+        )
+    else:
+        logger.warning("scheduled job %s missed its run time", getattr(event, "job_id", "?"))
 
 
 def start_scheduler() -> BackgroundScheduler | None:
