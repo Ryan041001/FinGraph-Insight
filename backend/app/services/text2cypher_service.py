@@ -113,16 +113,17 @@ def generate_cypher_with_llm(question: str, gateway: LLMGateway) -> tuple[str, l
     schema_hint = (
         f"图谱节点标签只能使用：{', '.join(allowed_labels)}。"
         f"关系类型只能使用：{', '.join(allowed_relationships)}。"
-        "实体语义：投资方/投资机构/资本是 Institution（不是 Person）；被投/融资企业是 Company；"
-        "融资轮次/事件是 Event。"
-        "关系模式（务必匹配端点类型与方向）："
-        "(Institution)-[:INVESTED_IN]->(Event)；(Company)-[:RECEIVED_FUNDING]->(Event)；"
-        "(Institution)-[:HOLDS_SHARES]->(Company)；(Person)-[:LEGAL_REP_OF]->(Company)；"
+        "实体语义：被投/融资主体通常是 Company；融资轮次/事件是 Event；"
+        "投资机构/基金通常是 Institution，但‘投资方’是关系角色而非固定类型——"
+        "个人投资人是 Person，作为投资方的普通企业仍是 Company，投资机构才是 Institution。"
+        "关系方向（务必匹配，标签按上面语义判断，宁可不写端点标签也不要写错）："
+        "(投资方)-[:INVESTED_IN]->(Event)；(Company)-[:RECEIVED_FUNDING]->(Event)；"
+        "(投资方)-[:HOLDS_SHARES]->(Company)；(Person)-[:LEGAL_REP_OF]->(Company)；"
         "(Person)-[:EXECUTIVE_OF]->(Company)。"
-        "查‘某公司的投资方’应经事件桥接："
-        "(c:Company)-[:RECEIVED_FUNDING]->(:Event)<-[:INVESTED_IN]-(inv:Institution)，返回 inv。"
-        "不要把投资方建模成 Person，也不要在 Company 与 Institution 之间直接连 INVESTED_IN。"
-        "若问题需要的关系不在列表中，请用最接近的合法关系并保持上述端点类型与方向。"
+        "查‘某公司的投资方’应经事件桥接，且投资方节点不要限定标签（投资方可能是 Institution/Company/Person）："
+        "(c:Company)-[:RECEIVED_FUNDING]->(:Event)<-[:INVESTED_IN]-(inv) 返回 inv。"
+        "不要在 Company 与投资方之间直接连 INVESTED_IN（INVESTED_IN 指向 Event）。"
+        "若问题需要的关系不在列表中，请用最接近的合法关系并保持上述方向。"
     )
     content = gateway.complete(
         task=LLMTask.TEXT2CYPHER,
