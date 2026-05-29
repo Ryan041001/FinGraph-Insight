@@ -341,11 +341,14 @@ def _split_investors(value: str) -> list[str]:
     if not raw:
         return []
 
-    normalized = re.sub(r"[、，,；;；\n\r\t]+", " ", raw)
-    parts = [part.strip() for part in normalized.split(" ") if part.strip()]
-    if len(parts) <= 1:
-        return parts
+    # English firm names (e.g. "GGV Capital") legitimately contain spaces, so a
+    # blind space-split shatters them into fake investors. Split only on explicit
+    # separators; fall back to space-split only when every token is purely CJK.
+    separator_parts = [p.strip() for p in re.split(r"[\u3001\uff0c,\uff1b;/\uff5c|\n\r\t]+", raw) if p.strip()]
+    if len(separator_parts) != 1:
+        return separator_parts if separator_parts else [raw]
 
-    if all(re.search(r"[\u4e00-\u9fff]", part) for part in parts):
-        return parts
-    return [raw]
+    space_parts = [p.strip() for p in separator_parts[0].split(" ") if p.strip()]
+    if len(space_parts) > 1 and all(re.search(r"[\u4e00-\u9fff]", p) for p in space_parts):
+        return space_parts
+    return separator_parts

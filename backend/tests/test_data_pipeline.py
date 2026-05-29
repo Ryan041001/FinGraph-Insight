@@ -1,6 +1,7 @@
 import json
 
 from app.data.financial_dataset_loader import (
+    _split_investors,
     load_financial_dataset_directory,
     load_financial_table,
     load_graph_payload_from_json,
@@ -109,6 +110,18 @@ def test_load_business_registry_table_creates_company_only(tmp_path):
     assert graph.nodes[0].properties["legal_representative"] == "邵一峰"
     assert graph.nodes[0].properties["credit_code"] == "913302040933533733"
     assert graph.edges == []
+
+
+def test_split_investors_preserves_english_names_and_splits_on_separators():
+    # CJK punctuation separates investors; spaces inside an English firm name must survive.
+    assert _split_investors("IDG资本、GGV Capital") == ["IDG资本", "GGV Capital"]
+    assert _split_investors("红杉资本，IDG资本；经纬中国") == ["红杉资本", "IDG资本", "经纬中国"]
+    # Pure-CJK space-separated names still split (legacy SmoothNLP format).
+    assert _split_investors("鼎珮投资集团 国投创业 君联资本") == ["鼎珮投资集团", "国投创业", "君联资本"]
+    # A single English name with spaces stays as one investor.
+    assert _split_investors("Sequoia Capital") == ["Sequoia Capital"]
+    assert _split_investors("GGV Capital") == ["GGV Capital"]
+    assert _split_investors("") == []
 
 
 def test_load_real_investment_event_table_uses_financing_company_and_split_investors(tmp_path):
