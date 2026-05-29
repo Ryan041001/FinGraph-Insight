@@ -113,7 +113,16 @@ def generate_cypher_with_llm(question: str, gateway: LLMGateway) -> tuple[str, l
     schema_hint = (
         f"图谱节点标签只能使用：{', '.join(allowed_labels)}。"
         f"关系类型只能使用：{', '.join(allowed_relationships)}。"
-        f"若问题需要的关系不在列表中，请用最接近的合法关系并保持方向正确（投资方→事件用 INVESTED_IN，公司→事件用 RECEIVED_FUNDING）。"
+        "实体语义：投资方/投资机构/资本是 Institution（不是 Person）；被投/融资企业是 Company；"
+        "融资轮次/事件是 Event。"
+        "关系模式（务必匹配端点类型与方向）："
+        "(Institution)-[:INVESTED_IN]->(Event)；(Company)-[:RECEIVED_FUNDING]->(Event)；"
+        "(Institution)-[:HOLDS_SHARES]->(Company)；(Person)-[:LEGAL_REP_OF]->(Company)；"
+        "(Person)-[:EXECUTIVE_OF]->(Company)。"
+        "查‘某公司的投资方’应经事件桥接："
+        "(c:Company)-[:RECEIVED_FUNDING]->(:Event)<-[:INVESTED_IN]-(inv:Institution)，返回 inv。"
+        "不要把投资方建模成 Person，也不要在 Company 与 Institution 之间直接连 INVESTED_IN。"
+        "若问题需要的关系不在列表中，请用最接近的合法关系并保持上述端点类型与方向。"
     )
     content = gateway.complete(
         task=LLMTask.TEXT2CYPHER,
