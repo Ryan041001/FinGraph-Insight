@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections import deque
 from dataclasses import dataclass
 from threading import RLock
 from typing import Any
@@ -30,6 +31,9 @@ class InMemoryGraphStore:
     def __init__(self) -> None:
         self._nodes: dict[str, GraphNode] = {}
         self._edges: dict[str, GraphEdge] = {}
+        # node_id -> set of incident edge ids (both directions). Lets BFS/lookups
+        # expand by real neighbors instead of scanning the whole edge table.
+        self._adjacency: dict[str, set[str]] = {}
         self._lock = RLock()
 
     def health_status(self) -> str:
@@ -39,6 +43,11 @@ class InMemoryGraphStore:
         with self._lock:
             self._nodes.clear()
             self._edges.clear()
+            self._adjacency.clear()
+
+    def _index_edge(self, edge: GraphEdge) -> None:
+        self._adjacency.setdefault(edge.source, set()).add(edge.id)
+        self._adjacency.setdefault(edge.target, set()).add(edge.id)
 
     def import_graph(self, graph: GraphPayload) -> ImportStats:
         with self._lock:
@@ -62,6 +71,10 @@ class InMemoryGraphStore:
                 else:
                     relationships_created += 1
                     self._edges[edge.id] = edge
+                # Endpoints are part of the stable edge id, so a merge never changes
+                # them; indexing on every upsert is idempotent and keeps the index
+                # correct even if an existing edge was loaded before this index existed.
+                self._index_edge(edge)
 
             return ImportStats(
                 nodes_created=nodes_created,
@@ -171,12 +184,12 @@ class InMemoryGraphStore:
                 return []
 
             max_depth = max(1, min(max_depth, 4))
-            queue: list[tuple[str, list[str], list[str]]] = [(source.id, [source.id], [])]
+            queue: deque[tuple[str, list[str], list[str]]] = deque([(source.id, [source.id], [])])
             results: list[dict[str, Any]] = []
             shortest_length: int | None = None
 
             while queue:
-                current_id, node_path, edge_path = queue.pop(0)
+                current_id, node_path, edge_path = queue.popleft()
                 if current_id == target.id and edge_path:
                     if shortest_length is None:
                         shortest_length = len(edge_path)
@@ -190,13 +203,14 @@ class InMemoryGraphStore:
                 if len(edge_path) >= max_depth:
                     continue
 
-                for edge in self._edges.values():
-                    neighbor = None
+                for edge in self._incident_edges(current_id):
                     if edge.source == current_id:
                         neighbor = edge.target
                     elif edge.target == current_id:
                         neighbor = edge.source
-                    if neighbor is None or neighbor in node_path:
+                    else:
+                        continue
+                    if neighbor in node_path:
                         continue
                     queue.append((neighbor, [*node_path, neighbor], [*edge_path, edge.id]))
 
@@ -283,7 +297,7 @@ class InMemoryGraphStore:
             if company is None:
                 return []
             event_ids: list[str] = []
-            for edge in self._edges.values():
+            for edge in self._incident_edges(company.id):
                 if edge.source == company.id and edge.target in self._nodes:
                     candidate = self._nodes[edge.target]
                     if candidate.type == "Event":
@@ -303,6 +317,9 @@ class InMemoryGraphStore:
                     break
             return events
 
+    def _incident_edges(self, node_id: str) -> list[GraphEdge]:
+        return [self._edges[eid] for eid in self._adjacency.get(node_id, ()) if eid in self._edges]
+
     def _subgraph_for_node(self, node_id: str, max_depth: int) -> GraphPayload:
         visited = {node_id}
         frontier = {node_id}
@@ -310,15 +327,13 @@ class InMemoryGraphStore:
 
         for _ in range(max_depth):
             next_frontier: set[str] = set()
-            for edge in self._edges.values():
-                touches_frontier = edge.source in frontier or edge.target in frontier
-                if not touches_frontier:
-                    continue
-                selected_edges[edge.id] = edge
-                for candidate in (edge.source, edge.target):
-                    if candidate not in visited:
-                        visited.add(candidate)
-                        next_frontier.add(candidate)
+            for frontier_node in frontier:
+                for edge in self._incident_edges(frontier_node):
+                    selected_edges[edge.id] = edge
+                    for candidate in (edge.source, edge.target):
+                        if candidate not in visited:
+                            visited.add(candidate)
+                            next_frontier.add(candidate)
             if not next_frontier:
                 break
             frontier = next_frontier
