@@ -28,3 +28,20 @@ def _reset_dataset_cache():
     yield
     with _DATASET_CACHE_LOCK:
         _DATASET_CACHE.clear()
+
+
+@pytest.fixture(autouse=True)
+def _block_company_enrichment_network(request, monkeypatch):
+    if "test_company_enrichment" in request.node.nodeid:
+        yield
+        return
+    from app.services import company_enrichment_service
+
+    monkeypatch.setattr(
+        company_enrichment_service,
+        "_fetch_yfinance_info",
+        lambda stock_code, market: None,
+    )
+    company_enrichment_service.reset_enrichment_cache()
+    yield
+    company_enrichment_service.reset_enrichment_cache()

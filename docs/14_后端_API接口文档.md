@@ -832,7 +832,9 @@ const finalRun = await pollJob(initial.job_run_id, {
   "depth": 2,
   "news_window_days": 30,
   "refresh_news": false,
-  "use_llm": false
+  "use_llm": false,
+  "enrich_fundamentals": true,
+  "market": "A"
 }
 ```
 
@@ -843,14 +845,30 @@ const finalRun = await pollJob(initial.job_run_id, {
 | `depth` | int | 否 | 2 | 图谱召回深度 |
 | `news_window_days` | int | 否 | 30 | — |
 | `refresh_news` | bool | 否 | false | 调用 LLM web search 补新闻 |
-| `use_llm` | bool | 否 | false | **默认不等待 LLM**;true 时生成结构化研判,失败会保留本地摘要并在 `missing_data` 中追加说明 |
+| `use_llm` | bool | 否 | false | 默认不等待 LLM;true 时生成结构化研判 |
+| `enrich_fundamentals` | bool | 否 | true | 用 yfinance 拉取 industry/sector/website/business_summary。**纯辅助信息,主体仍是图谱**;失败不阻塞流程,会在 `missing_data` 里标记 |
+| `market` | string | 否 | `A` | 配合 stock_code 解析 yfinance symbol(`A`→`.SS/.SZ`,`HK`→`.HK`) |
 
 响应:
 
 ```json
 {
   "target": { "stock_code": "600000", "company_name": "浦发银行" },
-  "fundamentals": { ..., "data_time": "local-cache" },
+  "fundamentals": {
+    "stock_code": "600000",
+    "company_name": "浦发银行",
+    "industry": "Banks - Regional",
+    "sector": "Financial Services",
+    "long_name": "Shanghai Pudong Development Bank Co., Ltd.",
+    "website": "https://www.spdb.com.cn",
+    "country": "China",
+    "employees": 49000,
+    "market_cap": 250000000000,
+    "currency": "CNY",
+    "business_summary": "...",
+    "data_source": "yfinance",
+    "data_time": "live"
+  },
   "news_events": [],
   "subgraph": { "nodes": [...], "edges": [...] },
   "analysis": {
@@ -864,6 +882,10 @@ const finalRun = await pollJob(initial.job_run_id, {
   }
 }
 ```
+
+`fundamentals.data_time` 取值:`local-cache`(仅图谱回退)或 `live`(yfinance 实时);`enrich_fundamentals=false` 或拉取失败时只保留 stock_code/company_name/industry/data_time 四个核心字段,其它字段不出现。
+
+**图谱回填**:enrichment 成功时,如果 `company_name` 在 graph_store 中存在,industry/sector/website/long_name/business_summary 会被合并到该 Company 节点的 properties(已有 industry 优先)。之后再调 `/graph/company/{name}` 也能拿到这些字段。
 
 后端保留每个 `stock_code` 最近一次的研判,LRU 上限 `STOCK_ANALYSIS_CACHE_MAX_SIZE`(默认 64)。
 

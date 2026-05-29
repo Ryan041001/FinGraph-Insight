@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from app.models.api import GraphPayload
+from app.services.company_enrichment_service import enrich_company_by_stock_code
 from app.services.news_service import search_news_events
 from app.services.graph_store import graph_store
 from app.services.llm_service import LLMGateway, LLMTask
@@ -16,24 +17,51 @@ DISCLAIMER = "本结果仅用于课程项目演示和研究辅助，不构成投
 def build_stock_analysis(payload: dict[str, Any], news_gateway: LLMGateway | None = None) -> dict[str, Any]:
     stock_code = str(payload.get("stock_code") or "")
     company_name = str(payload.get("company_name") or stock_code or "未知上市公司")
+    market = str(payload.get("market") or "A")
     depth = int(payload.get("depth") or 2)
+    enrich_enabled = bool(payload.get("enrich_fundamentals", True))
+
+    enrichment: dict[str, Any] | None = None
+    if enrich_enabled and stock_code:
+        try:
+            enrichment = enrich_company_by_stock_code(stock_code, company_name, market=market)
+        except Exception:
+            enrichment = None
+
     graph = graph_store.subgraph(company_name, depth=depth)
 
     news_events = _events_from_graph(graph)
     if payload.get("refresh_news") and news_gateway is not None:
         news_events = [*search_news_events(company_name, news_gateway), *news_events]
 
+    fundamentals = {
+        "stock_code": stock_code,
+        "company_name": company_name,
+        "industry": _company_industry(graph, enrichment),
+        "data_time": "local-cache",
+    }
+    if enrichment:
+        fundamentals["sector"] = enrichment.get("sector") or ""
+        fundamentals["website"] = enrichment.get("website") or ""
+        fundamentals["long_name"] = enrichment.get("long_name") or ""
+        fundamentals["country"] = enrichment.get("country") or ""
+        fundamentals["employees"] = enrichment.get("employees") or 0
+        fundamentals["market_cap"] = enrichment.get("market_cap") or 0
+        fundamentals["currency"] = enrichment.get("currency") or ""
+        fundamentals["business_summary"] = enrichment.get("business_summary") or ""
+        fundamentals["data_source"] = enrichment.get("source") or "yfinance"
+        fundamentals["data_time"] = "live"
+
+    missing_data: list[str] = []
+    if enrich_enabled and not enrichment:
+        missing_data.append("基本面字段补充失败（yfinance 不可用或股票代码无法解析）")
+
     return {
         "target": {
             "stock_code": stock_code,
             "company_name": company_name,
         },
-        "fundamentals": {
-            "stock_code": stock_code,
-            "company_name": company_name,
-            "industry": _company_industry(graph),
-            "data_time": "local-cache",
-        },
+        "fundamentals": fundamentals,
         "news_events": news_events,
         "subgraph": graph.model_dump(),
         "analysis": {
@@ -42,7 +70,7 @@ def build_stock_analysis(payload: dict[str, Any], news_gateway: LLMGateway | Non
             "risk_factors": [],
             "graph_insights": _graph_insights(graph),
             "confidence": 0.75 if graph.edges else 0.4,
-            "missing_data": ["真实财务字段和实时新闻需接入 AKShare/LLM 后补齐"],
+            "missing_data": missing_data,
             "disclaimer": DISCLAIMER,
         },
     }
@@ -100,7 +128,11 @@ def _normalize_llm_analysis(default_analysis: dict[str, Any], raw: dict[str, Any
     return analysis
 
 
-def _company_industry(graph: GraphPayload) -> str:
+def _company_industry(graph: GraphPayload, enrichment: dict[str, Any] | None = None) -> str:
+    if enrichment:
+        industry = enrichment.get("industry")
+        if isinstance(industry, str) and industry:
+            return industry
     for node in graph.nodes:
         if node.type == "Company":
             industry = node.properties.get("industry")
