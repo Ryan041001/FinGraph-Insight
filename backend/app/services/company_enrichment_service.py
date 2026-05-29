@@ -94,35 +94,6 @@ def _backfill_graph(company_name: str | None, payload: dict[str, Any]) -> None:
     if not company_name:
         return
     try:
-        node = graph_store._find_company(company_name.strip())
+        graph_store.backfill_company_properties(company_name.strip(), payload)
     except AttributeError:
         return
-    if node is None:
-        return
-
-    industry = payload.get("industry") or ""
-    sector = payload.get("sector") or ""
-    website = payload.get("website") or ""
-    long_name = payload.get("long_name") or ""
-    summary = payload.get("business_summary") or ""
-
-    if not any([industry, sector, website, long_name, summary]):
-        return
-
-    merged_properties = dict(node.properties)
-    if industry and merged_properties.get("industry") in {None, "", "未知"}:
-        merged_properties["industry"] = industry
-    if sector:
-        merged_properties.setdefault("sector", sector)
-    if website:
-        merged_properties.setdefault("website", website)
-    if long_name:
-        merged_properties.setdefault("long_name", long_name)
-    if summary:
-        merged_properties.setdefault("business_summary", summary)
-
-    if merged_properties == node.properties:
-        return
-
-    with graph_store._lock:
-        graph_store._nodes[node.id] = node.model_copy(update={"properties": merged_properties})

@@ -202,6 +202,35 @@ class InMemoryGraphStore:
 
             return results
 
+    def backfill_company_properties(self, name: str, properties: dict[str, Any]) -> bool:
+        """Merge enrichment properties into a matched company node under the lock.
+
+        `industry` only fills an empty/unknown value; other keys use setdefault so
+        existing data is never overwritten. Find + merge + write happen in one
+        critical section to avoid 'dictionary changed size during iteration' when a
+        background import is mutating _nodes concurrently. Returns True if updated.
+        """
+        if not name or not properties:
+            return False
+        with self._lock:
+            node = self._find_company(name.strip())
+            if node is None:
+                return False
+
+            merged = dict(node.properties)
+            industry = properties.get("industry") or ""
+            if industry and merged.get("industry") in {None, "", "未知"}:
+                merged["industry"] = industry
+            for key in ("sector", "website", "long_name", "business_summary"):
+                value = properties.get(key) or ""
+                if value:
+                    merged.setdefault(key, value)
+
+            if merged == node.properties:
+                return False
+            self._nodes[node.id] = node.model_copy(update={"properties": merged})
+            return True
+
     def _find_company(self, name: str) -> GraphNode | None:
         normalized = name.strip().lower()
         if not normalized:
