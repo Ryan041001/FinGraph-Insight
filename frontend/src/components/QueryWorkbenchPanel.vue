@@ -94,7 +94,7 @@ async function submitText2Cypher() {
   cypherLoading.value = true
   error.value = ''
   try {
-    const result = await askText2Cypher(question)
+    const result = await askText2Cypher(`${props.companyName}：${question}`)
     if (requestId !== requestSequence) {
       return
     }

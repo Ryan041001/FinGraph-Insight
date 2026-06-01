@@ -54,6 +54,7 @@ reports/*
 # Tooling local state
 .omc/
 .superpowers/
+.codex-run/
 .cache/
 
 # Logs and temporary files
