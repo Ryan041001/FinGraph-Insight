@@ -1,9 +1,16 @@
 import { apiPost } from './client'
+import type { ExtractionPayload, GraphImportResponse } from './types'
 
-export function extractText(text: string) {
-  return apiPost<Record<string, unknown>>('/extract', { text })
+export interface ExtractOptions {
+  self_refine?: boolean
+  judge?: boolean
+  mock?: boolean
+}
+
+export function extractText(text: string, options: ExtractOptions = { self_refine: false, judge: false, mock: false }) {
+  return apiPost<ExtractionPayload>('/extract', { text, options })
 }
 
 export function importGraph(payload: unknown) {
-  return apiPost<Record<string, unknown>>('/graph/import', payload)
+  return apiPost<GraphImportResponse>('/graph/import', payload)
 }

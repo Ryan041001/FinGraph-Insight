@@ -280,7 +280,7 @@ describe('RiskWorkbench', () => {
 
     const submitButton = wrapper.find('button[type="submit"]')
     expect(submitButton.attributes('disabled')).toBeDefined()
-    expect(submitButton.text()).toContain('分析中')
+    expect(submitButton.text()).toContain('搜索中')
 
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -444,12 +444,12 @@ describe('RiskWorkbench', () => {
     ])
   })
 
-  it('saves a due diligence report from the workbench preview', async () => {
+  it('saves a due diligence report from quick actions', async () => {
     getCompanyProfileMock.mockResolvedValue(makeProfile(DEFAULT_COMPANY_NAME, [riskEdge]))
 
     const wrapper = await mountWorkbench()
 
-    await wrapper.findAll('button').find((button) => button.text() === '保存研判报告')!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '保存报告')!.trigger('click')
 
     expect(loadReports()).toEqual([
       expect.objectContaining({
@@ -475,7 +475,7 @@ describe('RiskWorkbench', () => {
     getCompanyProfileMock.mockResolvedValue(makeProfile(DEFAULT_COMPANY_NAME, [riskEdge]))
 
     const wrapper = await mountWorkbench()
-    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存研判报告')!
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存报告')!
 
     await saveButton.trigger('click')
     await saveButton.trigger('click')

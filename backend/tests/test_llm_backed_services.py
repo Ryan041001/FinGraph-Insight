@@ -142,6 +142,33 @@ def test_extract_with_llm_drops_dangling_relationship_and_warns():
     assert any("幽灵实体" in w for w in payload["warnings"])
 
 
+def test_extract_with_llm_accepts_common_endpoint_aliases():
+    gateway = FakeGateway(
+        """
+        {
+          "entities": [
+            {"name": "云链智能科技有限公司", "type": "Company"},
+            {"name": "国投创业", "type": "Institution"},
+            {"name": "B轮融资", "type": "Event"}
+          ],
+          "relationships": [
+            {"source": "国投创业", "type": "领投", "target": "B轮融资", "confidence": 0.91},
+            {"head_entity": {"name": "云链智能科技有限公司"}, "relation": "获得融资", "tail_entity": {"name": "B轮融资"}, "confidence": 0.91}
+          ],
+          "warnings": []
+        }
+        """
+    )
+
+    payload = extract_with_llm("云链智能科技有限公司完成B轮融资，国投创业领投。", gateway)
+
+    assert [relationship["relation"] for relationship in payload["relationships"]] == [
+        "INVESTED_IN",
+        "RECEIVED_FUNDING",
+    ]
+    assert payload["warnings"] == []
+
+
 def test_extract_with_llm_duplicate_entity_name_keeps_first_temp_id():
     gateway = FakeGateway(
         """

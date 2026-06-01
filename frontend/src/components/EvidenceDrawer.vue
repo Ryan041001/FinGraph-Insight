@@ -44,6 +44,9 @@ const selectedTitle = computed(() => (props.selectedRelationId ? '选中关系�
 .evidence-drawer {
   display: grid;
   gap: 12px;
+  align-content: start;
+  max-height: 520px;
+  overflow: auto;
 }
 
 .evidence-meta {

@@ -1,9 +1,14 @@
 import { apiGet, apiPost } from './client'
+import type { JobListResponse, JobRun } from './types'
 
 export function listJobs() {
-  return apiGet<Record<string, unknown>>('/jobs')
+  return apiGet<JobListResponse>('/jobs')
 }
 
 export function runAkshareJob() {
-  return apiPost<Record<string, unknown>>('/jobs/akshare/run')
+  return apiPost<JobRun>('/jobs/akshare/run')
+}
+
+export function getJob(jobRunId: string) {
+  return apiGet<JobRun>(`/jobs/${encodeURIComponent(jobRunId)}`)
 }

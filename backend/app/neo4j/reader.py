@@ -44,7 +44,13 @@ class Neo4jGraphReader:
         bounded_depth = max(1, min(depth, 3))
         bounded_limit = max(1, min(limit, 500))
         query = f"""
-MATCH path=(start {{name: $entity}})-[*0..{bounded_depth}]-(neighbor)
+MATCH (start)
+WHERE start.name = $entity OR start.label = $entity
+   OR start.name CONTAINS $entity OR start.label CONTAINS $entity
+WITH start
+ORDER BY CASE WHEN start.name = $entity OR start.label = $entity THEN 0 ELSE 1 END
+LIMIT 1
+MATCH path=(start)-[*0..{bounded_depth}]-(neighbor)
 WITH collect(path)[0..$limit] AS paths
 RETURN paths AS paths
 """.strip()

@@ -33,10 +33,11 @@ describe('WatchlistView', () => {
     })
 
     expect(wrapper.text()).toContain('浙江数科控股有限公司')
-    expect(wrapper.text()).toContain('金融科技 · 高风险')
+    expect(wrapper.find('.industry').text()).toBe('金融科技')
+    expect(wrapper.find('.risk-badge').text()).toContain('高风险')
     expect(wrapper.find('a').attributes('href')).toBe('/workbench?company=%E6%B5%99%E6%B1%9F%E6%95%B0%E7%A7%91%E6%8E%A7%E8%82%A1%E6%9C%89%E9%99%90%E5%85%AC%E5%8F%B8')
 
-    await wrapper.find('button').trigger('click')
+    await wrapper.find('.remove-btn').trigger('click')
 
     expect(wrapper.text()).toContain('暂无关注企业')
     expect(wrapper.text()).not.toContain('存在需要复核的风险关系。')

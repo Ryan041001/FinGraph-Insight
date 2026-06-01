@@ -59,7 +59,7 @@ select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.92);
   color: var(--ink);
   padding: 9px 10px;
 }
@@ -72,13 +72,13 @@ select {
 
 .segmented button {
   border: 1px solid var(--line);
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.88);
   color: var(--ink);
 }
 
 .segmented button.active {
   border-color: var(--accent);
-  background: #f0fdfa;
+  background: rgba(14, 165, 233, 0.10);
   color: var(--accent);
 }
 

@@ -42,9 +42,9 @@ function nodeTypeLabel(node: GraphNode): string {
 
 function nodeColor(node: GraphNode): string {
   if (node.risk_level === 'high') return '#b91c1c'
-  if (node.type === 'Company') return '#0f766e'
-  if (node.type === 'Institution') return '#b45309'
-  if (node.type === 'Event') return '#2563eb'
+  if (node.type === 'Company') return '#2563eb'
+  if (node.type === 'Institution') return '#8b5cf6'
+  if (node.type === 'Event') return '#f59e0b'
   return '#64748b'
 }
 
@@ -151,10 +151,6 @@ onBeforeUnmount(() => {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background:
-    linear-gradient(90deg, rgba(15, 118, 110, 0.06) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(15, 118, 110, 0.06) 1px, transparent 1px),
-    #ffffff;
-  background-size: 40px 40px;
+  background: #f8fbff;
 }
 </style>
