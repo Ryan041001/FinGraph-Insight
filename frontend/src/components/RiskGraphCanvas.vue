@@ -66,7 +66,7 @@ function renderChart() {
     series: [{
       type: 'graph',
       layout: 'force',
-      roam: true,
+      roam: 'scale',
       categories: categories.value,
       force: { repulsion: 260, edgeLength: 118 },
       label: {
@@ -83,6 +83,7 @@ function renderChart() {
         id: node.id,
         name: node.label,
         category: categories.value.findIndex((item) => item.name === nodeTypeLabel(node)),
+        draggable: true,
         itemStyle: { color: nodeColor(node) },
         symbolSize: node.type === 'Company' ? 62 : 46
       })),

@@ -1,12 +1,14 @@
 from pathlib import Path
 from contextlib import asynccontextmanager
+import hashlib
 import json
 import re
 from collections import OrderedDict
 from collections.abc import Iterable
+from html import escape
 from queue import Empty, Queue
 from threading import RLock, Thread
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -16,7 +18,7 @@ from fastapi.responses import StreamingResponse
 
 from app.config import settings
 from app.data.financial_dataset_loader import load_financial_dataset_directory
-from app.models.api import DocumentIndexRequest, ExtractRequest, HealthResponse, Text2CypherRequest, Text2CypherSafety
+from app.models.api import DocumentIndexRequest, ExtractRequest, GraphPayload, HealthResponse, Text2CypherRequest, Text2CypherSafety, UnifiedQaRequest
 from app.neo4j.connection import check_neo4j_health, close_neo4j_driver, get_neo4j_driver
 from app.neo4j.reader import execute_readonly_cypher
 from app.services.extraction_service import (
@@ -297,12 +299,7 @@ def _load_dataset_graph_cached(dataset_path: Path):
 
 def _load_dataset_graph(dataset: str):
     if dataset == "financial_datasets":
-        project_root = Path(__file__).resolve().parents[2]
-        candidate_paths = [
-            project_root / "data" / "raw" / "FinancialDatasets",
-            project_root / "data" / "processed",
-        ]
-        for dataset_path in candidate_paths:
+        for dataset_path in _dataset_candidate_paths():
             if not dataset_path.exists():
                 continue
             graph = _load_dataset_graph_cached(dataset_path)
@@ -312,6 +309,26 @@ def _load_dataset_graph(dataset: str):
         status_code=404,
         detail={"error": "dataset_not_found", "message": "financial dataset files were not found or produced no nodes"},
     )
+
+
+def _dataset_candidate_paths(app_file: str | Path | None = None) -> list[Path]:
+    app_path = Path(app_file or __file__).resolve()
+    roots: list[Path] = []
+    for parent_index in (2, 1):
+        try:
+            root = app_path.parents[parent_index]
+        except IndexError:
+            continue
+        if root not in roots:
+            roots.append(root)
+
+    paths: list[Path] = []
+    for root in roots:
+        paths.extend([
+            root / "data" / "raw" / "FinancialDatasets",
+            root / "data" / "processed",
+        ])
+    return paths
 
 
 @app.post("/extract")
@@ -584,6 +601,407 @@ def _iter_company_labels():
     return [node.label for node in all_graph.nodes if node.type == "Company" and node.label]
 
 
+@app.post("/qa/unified")
+def unified_qa(request: UnifiedQaRequest) -> dict:
+    context = _build_unified_qa_context(request, use_llm_answer=True)
+    rag_response = context["rag_response"]
+    answer = str(rag_response.get("answer") or "暂未获得有效回答，请稍后重试。")
+    answer = _ensure_inline_html_answer(answer, context["table"])
+    supporting_graph = rag_response.get("supporting_graph") or context["graph"].model_dump()
+    return {
+        "answer": answer,
+        "cypher": context["cypher"],
+        "safety": context["safety"],
+        "table": context["table"],
+        "graph": context["query_graph"],
+        "supporting_graph": supporting_graph,
+        "citations": rag_response.get("citations", []),
+        "document_context": rag_response.get("document_context", []),
+        "retrieval": rag_response.get("retrieval", {}),
+        "status": context["status"],
+        "messages": context["messages"],
+    }
+
+
+_EVIDENCE_HTML_PATTERN = re.compile(r"<table\b|qa-evidence-table|qa-insight-card", re.IGNORECASE)
+
+
+def _ensure_inline_html_answer(answer: str, table: dict[str, object]) -> str:
+    if _EVIDENCE_HTML_PATTERN.search(answer):
+        return answer
+    evidence_table = _build_inline_evidence_table(table)
+    if not evidence_table:
+        return answer
+    return f"{answer.rstrip()}\n\n{evidence_table}"
+
+
+def _build_inline_evidence_table(table: dict[str, object]) -> str:
+    raw_columns = table.get("columns")
+    raw_rows = table.get("rows")
+    if not isinstance(raw_columns, list) or not isinstance(raw_rows, list) or not raw_columns or not raw_rows:
+        return ""
+
+    columns = [str(column) for column in raw_columns[:6]]
+    rows = [row for row in raw_rows[:8] if isinstance(row, list)]
+    if not rows:
+        return ""
+
+    card_style = (
+        "border: 1px solid #bae6fd; border-radius: 8px; background: #f0f9ff; "
+        "padding: 12px; margin-top: 12px;"
+    )
+    title_style = "display: block; color: #075985; margin-bottom: 8px;"
+    table_style = "width: 100%; border-collapse: collapse; background: #ffffff;"
+    th_style = (
+        "border: 1px solid #bae6fd; background: #e0f2fe; color: #0f172a; "
+        "padding: 8px; text-align: left;"
+    )
+    td_style = "border: 1px solid #bae6fd; color: #334155; padding: 8px; text-align: left;"
+
+    header = "".join(f'<th style="{th_style}">{escape(column)}</th>' for column in columns)
+    body_rows = []
+    for row in rows:
+        cells = []
+        for index in range(len(columns)):
+            value = row[index] if index < len(row) else ""
+            cells.append(f'<td style="{td_style}">{escape(_html_table_cell(value))}</td>')
+        body_rows.append(f"<tr>{''.join(cells)}</tr>")
+
+    return (
+        f'<div class="qa-insight-card" style="{card_style}">'
+        f'<strong style="{title_style}">审计证据摘要</strong>'
+        f'<table class="qa-evidence-table" style="{table_style}">'
+        f"<thead><tr>{header}</tr></thead>"
+        f"<tbody>{''.join(body_rows)}</tbody>"
+        "</table>"
+        "</div>"
+    )
+
+
+def _html_table_cell(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+@app.post("/qa/unified/stream")
+def unified_qa_stream(request: UnifiedQaRequest) -> StreamingResponse:
+    context = _build_unified_qa_context(request, use_llm_answer=False)
+    rag_response = context["rag_response"]
+    supporting_graph = rag_response.get("supporting_graph") or context["graph"].model_dump()
+    metadata = {
+        "cypher": context["cypher"],
+        "safety": context["safety"],
+        "table": context["table"],
+        "graph": context["query_graph"],
+        "supporting_graph": supporting_graph,
+        "citations": rag_response.get("citations", []),
+        "document_context": rag_response.get("document_context", []),
+        "retrieval": {
+            **(rag_response.get("retrieval") if isinstance(rag_response.get("retrieval"), dict) else {}),
+            "llm_used": True,
+            "answer_source": "llm_stream",
+        },
+        "status": context["status"],
+        "messages": context["messages"],
+    }
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "你是金融知识图谱问答助手。只能基于 supporting_graph 和 document_context 回答，"
+                "直接输出适合前端逐字展示的中文回答，不要输出 JSON。"
+                "可以使用 Markdown 和受控局部 HTML。"
+                f"\n{HTML_CHAT_FORMAT_INSTRUCTIONS}"
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "question": context["contextual_question"],
+                    "supporting_graph": supporting_graph,
+                    "document_context": metadata["document_context"],
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
+    token_stream = HttpLLMGateway().stream_complete(
+        task=LLMTask.GRAPH_RAG_STREAM,
+        messages=messages,
+        temperature=0,
+        max_tokens=1024,
+    )
+    return _sse_stream(token_stream, metadata=metadata)
+
+
+def _build_unified_qa_context(request: UnifiedQaRequest, *, use_llm_answer: bool) -> dict[str, Any]:
+    question = request.question.strip()
+    target_entity = (request.entity or request.company_name or extract_company_name_from_question(question)).strip() or "该企业"
+    contextual_question = question if target_entity in question else f"{target_entity}：{question}"
+    graph = _runtime_subgraph_payload(target_entity)
+    status: dict[str, str] = {"text2cypher": "pending", "rag": "pending"}
+    messages: list[str] = []
+    cypher = ""
+    safety = Text2CypherSafety(passed=False, rules=[], reason="not_run").model_dump()
+    table: dict[str, object] = {"columns": [], "rows": []}
+    query_graph: dict[str, object] = {"nodes": [], "edges": []}
+
+    if is_write_intent(contextual_question):
+        status["text2cypher"] = "skipped"
+        safety = Text2CypherSafety(passed=False, rules=[], reason="写操作意图已跳过图查询").model_dump()
+        messages.append("已跳过不适合执行的图查询。")
+    else:
+        try:
+            cypher, rules = generate_cypher_with_llm(contextual_question, HttpLLMGateway())
+            safety = Text2CypherSafety(passed=True, rules=rules).model_dump()
+            if settings.graph_backend.lower() == "neo4j":
+                cypher_result = execute_readonly_cypher(get_neo4j_driver(), cypher)
+                table = cypher_result.get("table", table)
+                query_graph = cypher_result.get("graph", query_graph)
+                query_graph = _enrich_node_only_audit_graph(query_graph, graph)
+                status["text2cypher"] = "ok"
+                if _graph_edge_count(query_graph) > 0:
+                    messages.append("已在 Neo4j 执行查询并生成可视化。")
+            else:
+                memory_result = _build_memory_audit_query_result(target_entity, graph)
+                table = memory_result["table"]
+                query_graph = memory_result["graph"]
+                if memory_result["has_graph"]:
+                    status["text2cypher"] = "ok"
+                    messages.append("已在本地图谱执行查询并生成可视化。")
+                else:
+                    status["text2cypher"] = "generated"
+                    messages.append("图查询语句已生成，本地图谱暂未查询到可视化结果。")
+        except Exception:
+            status["text2cypher"] = "failed"
+            messages.append("图查询暂未生成，已继续基于可用上下文回答。")
+
+    rag_response: dict[str, object] = {}
+    try:
+        rag_response = answer_with_hybrid_rag(
+            contextual_question,
+            entity=target_entity,
+            gateway=HttpLLMGateway() if use_llm_answer else None,
+        )
+        status["rag"] = "ok"
+    except Exception:
+        status["rag"] = "fallback"
+        rag_response = answer_with_hybrid_context(contextual_question, graph)
+        messages.append("AI回答暂未调用成功，已基于现有证据生成基础回答。")
+
+    if _unified_response_needs_public_evidence(rag_response, graph):
+        augmented_response = _augment_unified_response_with_public_evidence(
+            rag_response=rag_response,
+            target_entity=target_entity,
+            graph=graph,
+        )
+        if augmented_response is not rag_response:
+            rag_response = augmented_response
+            messages.append("已补充企业证据线索并继续回答。")
+
+    return {
+        "question": question,
+        "target_entity": target_entity,
+        "contextual_question": contextual_question,
+        "graph": graph,
+        "rag_response": rag_response,
+        "cypher": cypher,
+        "safety": safety,
+        "table": table,
+        "query_graph": query_graph,
+        "status": status,
+        "messages": messages,
+    }
+
+
+def _runtime_subgraph_payload(target_entity: str) -> GraphPayload:
+    if settings.graph_backend.lower() == "neo4j":
+        try:
+            runtime_graph = GraphPayload.model_validate(subgraph(target_entity))
+            if runtime_graph.nodes or runtime_graph.edges:
+                return runtime_graph
+        except Exception:
+            pass
+    return graph_store.subgraph(target_entity)
+
+
+def _enrich_node_only_audit_graph(query_graph: dict[str, object], entity_graph: GraphPayload) -> dict[str, object]:
+    if _graph_edge_count(query_graph) > 0:
+        return query_graph
+    if entity_graph.edges:
+        return entity_graph.model_dump()
+    return query_graph
+
+
+def _graph_edge_count(graph: dict[str, object]) -> int:
+    edges = graph.get("edges")
+    return len(edges) if isinstance(edges, list) else 0
+
+
+def _build_memory_audit_query_result(target_entity: str, graph: GraphPayload) -> dict[str, Any]:
+    query_graph = graph
+    if not query_graph.nodes and target_entity:
+        query_graph = graph_store.subgraph(target_entity)
+
+    rows = [
+        [node.label, node.type, node.risk_level]
+        for node in query_graph.nodes[:50]
+    ]
+    return {
+        "table": {
+            "columns": ["节点", "类型", "风险等级"],
+            "rows": rows,
+        },
+        "graph": query_graph.model_dump(),
+        "has_graph": bool(query_graph.nodes or query_graph.edges),
+    }
+
+
+def _unified_response_needs_public_evidence(rag_response: dict[str, object], graph: GraphPayload) -> bool:
+    supporting_graph = rag_response.get("supporting_graph")
+    if not isinstance(supporting_graph, dict):
+        supporting_graph = graph.model_dump()
+
+    nodes = supporting_graph.get("nodes") if isinstance(supporting_graph, dict) else []
+    edges = supporting_graph.get("edges") if isinstance(supporting_graph, dict) else []
+    document_context = rag_response.get("document_context")
+    return not nodes and not edges and not document_context
+
+
+def _augment_unified_response_with_public_evidence(
+    *,
+    rag_response: dict[str, object],
+    target_entity: str,
+    graph: GraphPayload,
+) -> dict[str, object]:
+    try:
+        analysis = build_stock_analysis(
+            {
+                "stock_code": "",
+                "company_name": target_entity,
+                "refresh_news": True,
+                "enrich_fundamentals": False,
+            },
+            news_gateway=HttpLLMGateway(),
+        )
+        _sanitize_stock_analysis_missing_data(analysis)
+    except Exception:
+        return rag_response
+
+    raw_events = analysis.get("news_events")
+    events = [event for event in raw_events if isinstance(event, dict)] if isinstance(raw_events, list) else []
+    document_context = _news_events_to_document_context(target_entity, events)
+    if not document_context:
+        return rag_response
+
+    citations = _news_context_to_citations(document_context)
+    retrieval = rag_response.get("retrieval")
+    if not isinstance(retrieval, dict):
+        retrieval = {}
+
+    return {
+        **rag_response,
+        "answer": _synthesize_unified_answer_from_evidence(
+            target_entity=target_entity,
+            document_context=document_context,
+            analysis=analysis,
+        ),
+        "supporting_graph": rag_response.get("supporting_graph") or graph.model_dump(),
+        "document_context": document_context,
+        "citations": [*(rag_response.get("citations") if isinstance(rag_response.get("citations"), list) else []), *citations],
+        "retrieval": {
+            **retrieval,
+            "mode": "hybrid",
+            "document_chunks": document_context and len(document_context) or 0,
+            "realtime_events": len(document_context),
+            "answer_source": "evidence_fallback",
+        },
+    }
+
+
+def _news_events_to_document_context(company_name: str, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    chunks: list[dict[str, Any]] = []
+    for index, event in enumerate(events[:5], start=1):
+        title = str(event.get("title") or f"{company_name}证据线索{index}").strip()
+        evidence = str(event.get("evidence") or title).strip()
+        if not title and not evidence:
+            continue
+
+        date = str(event.get("date") or "未知").strip() or "未知"
+        source_url = str(event.get("source_url") or "").strip()
+        event_type = str(event.get("event_type") or "public_info").strip() or "public_info"
+        text = _join_evidence_parts([title, evidence, f"日期：{date}" if date != "未知" else ""])
+        digest = hashlib.sha1(f"{company_name}|{title}|{evidence}|{index}".encode("utf-8")).hexdigest()[:12]
+        doc_id = f"evidence_{digest}"
+        chunks.append(
+            {
+                "chunk_id": f"{doc_id}_0001",
+                "doc_id": doc_id,
+                "title": title,
+                "text": text,
+                "metadata": {
+                    "company_name": company_name,
+                    "event_type": event_type,
+                    "date": date,
+                    "source": "证据线索",
+                    "source_url": source_url,
+                },
+                "score": round(max(0.2, 1.0 - (index - 1) * 0.08), 6),
+            }
+        )
+    return chunks
+
+
+def _news_context_to_citations(document_context: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    citations: list[dict[str, Any]] = []
+    for chunk in document_context:
+        citations.append(
+            {
+                "chunk_id": chunk.get("chunk_id"),
+                "doc_id": chunk.get("doc_id"),
+                "source": "证据线索",
+                "source_text": chunk.get("text", ""),
+                "score": chunk.get("score", 0),
+            }
+        )
+    return citations
+
+
+def _synthesize_unified_answer_from_evidence(
+    *,
+    target_entity: str,
+    document_context: list[dict[str, Any]],
+    analysis: dict[str, Any],
+) -> str:
+    analysis_block = analysis.get("analysis") if isinstance(analysis.get("analysis"), dict) else {}
+    summary = str(analysis_block.get("summary") or "").strip()
+    lines = [f"{target_entity}的可用证据线索如下："]
+    if summary:
+        lines.append(summary)
+    for chunk in document_context[:3]:
+        title = str(chunk.get("title") or "证据线索").strip()
+        text = str(chunk.get("text") or "").strip()
+        metadata = chunk.get("metadata") if isinstance(chunk.get("metadata"), dict) else {}
+        date = str(metadata.get("date") or "").strip()
+        date_text = f"（{date}）" if date and date != "未知" else ""
+        lines.append(f"- {title}{date_text}：{text}")
+    lines.append("以上内容仅用于课程项目演示和研究辅助，不构成投资建议。")
+    return "\n".join(lines)
+
+
+def _join_evidence_parts(parts: list[str]) -> str:
+    seen: list[str] = []
+    for part in parts:
+        text = part.strip()
+        if text and text not in seen:
+            seen.append(text)
+    return "；".join(seen)
+
+
 @app.post("/qa/text2cypher")
 def text2cypher(request: Text2CypherRequest):
     try:
@@ -655,24 +1073,66 @@ def stock_analysis(payload: dict) -> dict:
     if payload.get("refresh_news"):
         try:
             result = build_stock_analysis(payload, news_gateway=HttpLLMGateway())
-        except Exception as exc:
+        except Exception:
             result = build_stock_analysis({**payload, "refresh_news": False})
             missing_data = result["analysis"].setdefault("missing_data", [])
-            missing_data.append(f"新闻补充暂不可用，已使用本地图谱事件：{exc}")
+            missing_data.append("部分信息暂未获取，已基于现有证据生成。")
     else:
         result = build_stock_analysis(payload)
 
     if use_llm:
         try:
             result = summarize_stock_analysis_with_llm(result, HttpLLMGateway())
-        except Exception as exc:
+        except Exception:
             missing_data = result["analysis"].setdefault("missing_data", [])
-            missing_data.append(f"模型研判暂不可用，已返回本地图谱摘要：{exc}")
+            missing_data.append("部分信息暂未获取，已基于现有证据生成。")
 
+    _sanitize_stock_analysis_missing_data(result)
     stock_code = str(result.get("target", {}).get("stock_code") or payload.get("stock_code") or "")
     if stock_code:
         _record_stock_analysis(stock_code, result)
     return result
+
+
+def _sanitize_stock_analysis_missing_data(result: dict) -> None:
+    analysis = result.get("analysis")
+    if not isinstance(analysis, dict):
+        return
+    raw_missing = analysis.get("missing_data")
+    if not isinstance(raw_missing, list):
+        analysis["missing_data"] = []
+        return
+    if not raw_missing:
+        return
+
+    product_messages: list[str] = []
+    for item in raw_missing:
+        text = str(item)
+        if _is_technical_missing_data(text):
+            continue
+        if text and text not in product_messages:
+            product_messages.append(text)
+    if not product_messages:
+        product_messages = ["部分信息暂未获取，已基于现有证据生成。"]
+    analysis["missing_data"] = product_messages[:3]
+
+
+def _is_technical_missing_data(text: str) -> bool:
+    technical_markers = (
+        "yfinance",
+        "LLM",
+        "missing choices",
+        "Server error",
+        "Service Unavailable",
+        "503",
+        "OPENAI",
+        "API_KEY",
+        "股票代码无法解析",
+        "基本面字段补充失败",
+        "新闻补充暂不可用",
+        "模型研判暂不可用",
+    )
+    return any(marker in text for marker in technical_markers)
 
 
 @app.get("/analysis/stock/{stock_code}/latest")
@@ -680,7 +1140,9 @@ def latest_stock_analysis(stock_code: str) -> dict:
     cached = _get_cached_stock_analysis(stock_code)
     if cached:
         return cached
-    return build_stock_analysis({"stock_code": stock_code, "company_name": stock_code})
+    result = build_stock_analysis({"stock_code": stock_code, "company_name": stock_code})
+    _sanitize_stock_analysis_missing_data(result)
+    return result
 
 
 @app.post("/analysis/stock/stream")
@@ -858,7 +1320,7 @@ def _stock_tool_calls(target: dict) -> list[dict]:
         {
             "id": "open-kline-events",
             "label": "查看K线事件",
-            "description": "打开行情 K 线和图谱事件标注。",
+            "description": "打开行情 K 线和证据线索标注。",
             "method": "GET",
             "endpoint": f"/market/kline/{stock_code}",
             "params": {"market": "A", "period": "daily"},
@@ -872,8 +1334,8 @@ def _stock_tool_calls(target: dict) -> list[dict]:
         },
         {
             "id": "refresh-news-context",
-            "label": "补充新闻上下文",
-            "description": "重新调用新闻补充并返回结构化研判。",
+            "label": "补充证据线索",
+            "description": "重新补充证据线索并返回结构化研判。",
             "method": "POST",
             "endpoint": "/analysis/stock",
             "body": {"stock_code": stock_code, "company_name": company_name, "refresh_news": True},

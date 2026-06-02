@@ -1,4 +1,4 @@
-const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
+export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
 
 export class ApiError extends Error {
   constructor(
@@ -12,7 +12,7 @@ export class ApiError extends Error {
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetch(`${baseUrl}${path}`)
+  const response = await fetch(`${apiBaseUrl}${path}`)
   if (!response.ok) {
     throw await buildApiError(response)
   }
@@ -20,7 +20,7 @@ export async function apiGet<T>(path: string): Promise<T> {
 }
 
 export async function apiPost<T>(path: string, body: unknown = {}): Promise<T> {
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
@@ -29,6 +29,46 @@ export async function apiPost<T>(path: string, body: unknown = {}): Promise<T> {
     throw await buildApiError(response)
   }
   return parseJsonResponse<T>(response)
+}
+
+export async function apiPostSse(
+  path: string,
+  body: unknown,
+  onEvent: (event: string, data: unknown) => void
+): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  if (!response.ok) {
+    throw await buildApiError(response)
+  }
+  if (!response.body) {
+    throw new ApiError('服务未返回可读取的数据流', response.status, null)
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) {
+      break
+    }
+    buffer += decoder.decode(value, { stream: true })
+    const parts = buffer.split(/\r?\n\r?\n/)
+    buffer = parts.pop() ?? ''
+    for (const part of parts) {
+      emitSsePart(part, onEvent)
+    }
+  }
+
+  buffer += decoder.decode()
+  if (buffer.trim()) {
+    emitSsePart(buffer, onEvent)
+  }
 }
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
@@ -49,6 +89,30 @@ function repairMojibake(value: unknown): unknown {
     )
   }
   return value
+}
+
+function emitSsePart(part: string, onEvent: (event: string, data: unknown) => void) {
+  const lines = part.split(/\r?\n/)
+  let event = 'message'
+  const dataLines: string[] = []
+  for (const line of lines) {
+    if (line.startsWith('event:')) {
+      event = line.slice('event:'.length).trim()
+    } else if (line.startsWith('data:')) {
+      dataLines.push(line.slice('data:'.length).trimStart())
+    }
+  }
+
+  if (dataLines.length === 0) {
+    return
+  }
+
+  const dataText = dataLines.join('\n')
+  try {
+    onEvent(event, repairMojibake(JSON.parse(dataText)))
+  } catch {
+    onEvent(event, repairMojibake(dataText))
+  }
 }
 
 function repairString(value: string): string {

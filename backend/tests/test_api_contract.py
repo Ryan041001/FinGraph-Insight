@@ -66,6 +66,24 @@ def test_health_reports_scheduler_and_graph_status():
     assert response.json()["scheduler"] in {"running", "configured", "disabled"}
 
 
+def test_dataset_candidate_paths_cover_container_and_repo_layouts(tmp_path):
+    from app import main
+
+    container_app_file = tmp_path / "app" / "main.py"
+    container_app_file.parent.mkdir(parents=True)
+    container_app_file.write_text("", encoding="utf-8")
+
+    repo_app_file = tmp_path / "repo" / "backend" / "app" / "main.py"
+    repo_app_file.parent.mkdir(parents=True)
+    repo_app_file.write_text("", encoding="utf-8")
+
+    container_paths = list(main._dataset_candidate_paths(container_app_file))
+    repo_paths = list(main._dataset_candidate_paths(repo_app_file))
+
+    assert tmp_path / "data" / "raw" / "FinancialDatasets" in container_paths
+    assert tmp_path / "repo" / "data" / "raw" / "FinancialDatasets" in repo_paths
+
+
 def test_health_checks_real_neo4j_connectivity_when_backend_enabled(monkeypatch):
     monkeypatch.setattr("app.main.settings.graph_backend", "neo4j")
     monkeypatch.setattr("app.main.graph_store.health_status", lambda: "memory")
@@ -413,6 +431,255 @@ def test_text2cypher_route_falls_back_to_safe_template_when_llm_times_out(monkey
     assert response.json()["detail"]["error"] == "llm_error"
 
 
+def test_unified_qa_uses_public_evidence_for_missing_local_company(monkeypatch):
+    graph_store.clear()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("app.main.settings.graph_backend", "memory")
+    monkeypatch.setattr("app.main.generate_cypher_with_llm", lambda question, gateway: ("MATCH (c:Company) RETURN c.name AS company LIMIT 50", ["readonly"]))
+    monkeypatch.setattr(
+        "app.main.answer_with_hybrid_rag",
+        lambda question, entity, gateway: {
+            "answer": "暂无可用证据线索。",
+            "supporting_graph": {"nodes": [], "edges": []},
+            "citations": [],
+            "document_context": [],
+            "retrieval": {"mode": "hybrid", "graph_nodes": 0, "graph_edges": 0, "document_chunks": 0},
+        },
+    )
+
+    def fake_build_stock_analysis(payload, news_gateway=None):
+        captured["payload"] = payload
+        return {
+            "target": {"stock_code": "", "company_name": payload["company_name"]},
+            "fundamentals": {"industry": "机器人", "data_time": "local-cache"},
+            "news_events": [
+                {
+                    "event_type": "public_info",
+                    "sentiment": "neutral",
+                    "title": "宇树科技发布四足机器人新品",
+                    "date": "2026-06-01",
+                    "source_url": "https://example.com/unitree",
+                    "evidence": "宇树科技公开披露机器人产品进展。",
+                }
+            ],
+            "subgraph": {"nodes": [], "edges": []},
+            "analysis": {
+                "summary": "宇树科技当前研判基于可用证据线索生成。",
+                "missing_data": [],
+                "disclaimer": "本结果仅用于课程项目演示和研究辅助，不构成投资建议。",
+            },
+        }
+
+    monkeypatch.setattr("app.main.build_stock_analysis", fake_build_stock_analysis)
+
+    response = client.post(
+        "/qa/unified",
+        json={"question": "有什么风险？", "entity": "宇树科技"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    rendered = str(payload)
+    assert captured["payload"]["company_name"] == "宇树科技"
+    assert payload["document_context"]
+    assert payload["retrieval"]["realtime_events"] == 1
+    assert "宇树科技" in payload["answer"]
+    assert "宇树科技" in rendered
+    assert "邦盛科技" not in rendered
+
+
+def test_unified_qa_memory_mode_returns_real_query_graph_for_audit_visualization(monkeypatch):
+    graph_store.clear()
+    company = GraphNode(
+        id="company_xinghe",
+        label="星河数据",
+        type="Company",
+        properties={"industry": "金融科技"},
+    )
+    event = GraphNode(
+        id="event_xinghe_b",
+        label="星河数据B轮融资事件",
+        type="Event",
+        properties={"round": "B轮", "amount": "3000万元"},
+    )
+    investor = GraphNode(
+        id="investor_sequoia",
+        label="红杉资本",
+        type="Institution",
+        properties={},
+    )
+    graph_store.import_graph(
+        GraphPayload(
+            nodes=[company, event, investor],
+            edges=[
+                GraphEdge(
+                    id="rel_xinghe_received",
+                    source=company.id,
+                    target=event.id,
+                    type="RECEIVED_FUNDING",
+                    label="获得融资",
+                    confidence=0.93,
+                    properties={},
+                ),
+                GraphEdge(
+                    id="rel_sequoia_invested",
+                    source=investor.id,
+                    target=event.id,
+                    type="INVESTED_IN",
+                    label="投资",
+                    confidence=0.93,
+                    properties={},
+                ),
+            ],
+        )
+    )
+
+    monkeypatch.setattr("app.main.settings.graph_backend", "memory")
+    monkeypatch.setattr(
+        "app.main.generate_cypher_with_llm",
+        lambda question, gateway: (
+            'MATCH (c:Company {name: "星河数据"})-[:RECEIVED_FUNDING]->(e:Event)<-[:INVESTED_IN]-(inv) RETURN c, e, inv LIMIT 50',
+            ["read_only", "limit_checked"],
+        ),
+    )
+    monkeypatch.setattr(
+        "app.main.answer_with_hybrid_rag",
+        lambda question, entity, gateway: {
+            "answer": "星河数据已获得红杉资本投资。",
+            "supporting_graph": graph_store.subgraph(entity).model_dump(),
+            "citations": [],
+            "document_context": [],
+            "retrieval": {"mode": "hybrid"},
+        },
+    )
+
+    response = client.post(
+        "/qa/unified",
+        json={"question": "这家公司有哪些投资方？", "entity": "星河数据"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"]["text2cypher"] == "ok"
+    assert {node["label"] for node in payload["graph"]["nodes"]} >= {"星河数据", "红杉资本", "星河数据B轮融资事件"}
+    assert {edge["label"] for edge in payload["graph"]["edges"]} >= {"获得融资", "投资"}
+    assert payload["table"]["columns"] == ["节点", "类型", "风险等级"]
+    assert ["星河数据", "Company", "normal"] in payload["table"]["rows"]
+    assert any("本地图谱执行查询" in message for message in payload["messages"])
+
+
+def test_unified_qa_neo4j_mode_enriches_node_only_audit_result_with_entity_subgraph(monkeypatch):
+    graph_store.clear()
+    company = GraphNode(
+        id="company_xinghe",
+        label="星河数据",
+        type="Company",
+        properties={"name": "星河数据"},
+    )
+    event = GraphNode(
+        id="event_xinghe_b",
+        label="星河数据B轮融资事件",
+        type="Event",
+        properties={"name": "星河数据B轮融资事件"},
+    )
+    edge = GraphEdge(
+        id="rel_xinghe_b",
+        source=company.id,
+        target=event.id,
+        type="RECEIVED_FUNDING",
+        label="获得融资",
+    )
+    graph_store.import_graph(GraphPayload(nodes=[company, event], edges=[edge]))
+
+    monkeypatch.setattr("app.main.settings.graph_backend", "neo4j")
+    monkeypatch.setattr(
+        "app.main.generate_cypher_with_llm",
+        lambda question, gateway: ("MATCH (c:Company {name: '星河数据'}) RETURN c LIMIT 50", ["readonly"]),
+    )
+    monkeypatch.setattr("app.main.get_neo4j_driver", lambda: "driver")
+    monkeypatch.setattr(
+        "app.main.execute_readonly_cypher",
+        lambda driver, cypher: {
+            "table": {"columns": ["节点"], "rows": [["星河数据"]]},
+            "graph": {"nodes": [company.model_dump()], "edges": []},
+        },
+    )
+    monkeypatch.setattr(
+        "app.main.answer_with_hybrid_rag",
+        lambda question, entity, gateway: {
+            "answer": "星河数据存在融资事件。",
+            "supporting_graph": {"nodes": [company.model_dump()], "edges": []},
+            "citations": [],
+            "document_context": [],
+            "retrieval": {},
+        },
+    )
+
+    response = client.post(
+        "/qa/unified",
+        json={"question": "这家公司有哪些风险点？", "entity": "星河数据"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"]["text2cypher"] == "ok"
+    assert {node["label"] for node in payload["graph"]["nodes"]} >= {"星河数据", "星河数据B轮融资事件"}
+    assert {edge["label"] for edge in payload["graph"]["edges"]} >= {"获得融资"}
+    assert payload["table"]["rows"] == [["星河数据"]]
+    assert any("Neo4j" in message for message in payload["messages"])
+
+
+def test_unified_qa_adds_inline_html_evidence_table_when_llm_answer_is_plain_text(monkeypatch):
+    graph_store.clear()
+    company = GraphNode(id="company_xinghe", label="星河数据", type="Company")
+    graph_store.import_graph(GraphPayload(nodes=[company], edges=[]))
+
+    monkeypatch.setattr("app.main.settings.graph_backend", "memory")
+    monkeypatch.setattr(
+        "app.main.generate_cypher_with_llm",
+        lambda question, gateway: ("MATCH (c:Company {name: '星河数据'}) RETURN c LIMIT 50", ["readonly"]),
+    )
+    monkeypatch.setattr(
+        "app.main.answer_with_hybrid_rag",
+        lambda question, entity, gateway: {
+            "answer": "星河数据当前未发现高风险证据。",
+            "supporting_graph": graph_store.subgraph(entity).model_dump(),
+            "citations": [],
+            "document_context": [],
+            "retrieval": {},
+        },
+    )
+
+    response = client.post(
+        "/qa/unified",
+        json={"question": "这家公司有哪些风险点？", "entity": "星河数据"},
+    )
+
+    assert response.status_code == 200
+    answer = response.json()["answer"]
+    assert "星河数据当前未发现高风险证据。" in answer
+    assert '<div class="qa-insight-card" style=' in answer
+    assert '<table class="qa-evidence-table" style=' in answer
+    assert 'border: 1px solid' in answer
+    assert 'background:' in answer
+    assert ">节点</th>" in answer
+    assert ">星河数据</td>" in answer
+
+
+def test_unified_qa_adds_evidence_table_when_llm_answer_has_html_list_without_table():
+    from app.main import _ensure_inline_html_answer
+
+    answer = _ensure_inline_html_answer(
+        "<h2>风险点</h2><ul><li>当前未发现高风险标记。</li></ul>",
+        {"columns": ["节点", "类型"], "rows": [["星河数据", "Company"]]},
+    )
+
+    assert "<ul><li>当前未发现高风险标记。</li></ul>" in answer
+    assert '<table class="qa-evidence-table" style=' in answer
+    assert ">星河数据</td>" in answer
+
+
 def test_latest_stock_analysis_returns_cached_or_local_analysis_without_llm(monkeypatch):
     monkeypatch.setattr("app.main.HttpLLMGateway", lambda: FailingGateway())
 
@@ -460,7 +727,7 @@ def test_stock_analysis_refresh_news_reports_news_fallback(monkeypatch):
 
     assert response.status_code == 200
     missing_data = response.json()["analysis"]["missing_data"]
-    assert any("新闻补充暂不可用" in item for item in missing_data)
+    assert missing_data == ["部分信息暂未获取，已基于现有证据生成。"]
 
 
 def test_manual_akshare_run_uses_real_update_path(monkeypatch):
@@ -524,7 +791,10 @@ def test_graph_rag_stream_prompt_supports_bounded_html_fragments(monkeypatch):
     assert "<!-- html-render-start -->" in system_prompt
     assert "<!-- html-render-end -->" in system_prompt
     assert "禁止输出 <!DOCTYPE html>" in system_prompt
-    assert "禁止 class 属性" in system_prompt
+    assert "禁止 style 属性" in system_prompt
+    assert "禁止输出 <!DOCTYPE html>" in system_prompt
+    assert "禁止输出 <!DOCTYPE html>、<html>、<head>、<body>、<style>、<script>" in system_prompt
+    assert "可以使用语义 class" in system_prompt
 
 
 def test_graph_rag_stream_sends_ping_while_waiting_for_llm(monkeypatch):
@@ -562,6 +832,42 @@ def test_hybrid_rag_stream_returns_sse_events(monkeypatch):
     assert "event: metadata" in body
     assert "document_context" in body
     assert "tool_calls" in body
+    assert "event: delta" in body
+    assert "第一段" in body
+    assert "第二段" in body
+    assert "event: done" in body
+
+
+def test_unified_qa_stream_returns_sse_events(monkeypatch):
+    graph_store.clear()
+    monkeypatch.setattr("app.main.settings.graph_backend", "memory")
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: StreamingGateway())
+    monkeypatch.setattr(
+        "app.main.generate_cypher_with_llm",
+        lambda question, gateway: ("MATCH (c:Company) RETURN c.name AS company LIMIT 50", ["readonly"]),
+    )
+    monkeypatch.setattr(
+        "app.main.answer_with_hybrid_rag",
+        lambda question, entity, gateway: {
+            "answer": "",
+            "supporting_graph": {"nodes": [], "edges": []},
+            "citations": [{"title": "证据线索", "source": "local"}],
+            "document_context": [{"title": "宇树科技证据线索", "content": "宇树科技公开披露机器人产品进展。"}],
+            "retrieval": {"mode": "hybrid", "graph_nodes": 0, "graph_edges": 0, "document_chunks": 1},
+        },
+    )
+
+    response = client.post(
+        "/qa/unified/stream",
+        json={"question": "有什么风险？", "entity": "宇树科技"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    body = response.text
+    assert "event: metadata" in body
+    assert "document_context" in body
+    assert "宇树科技证据线索" in body
     assert "event: delta" in body
     assert "第一段" in body
     assert "第二段" in body

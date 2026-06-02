@@ -57,6 +57,8 @@ reports/*
 .codex/
 .codex-run/
 .cache/
+.claude/worktrees/
+.playwright-mcp/
 
 # Logs and temporary files
 *.log

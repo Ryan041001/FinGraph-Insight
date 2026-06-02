@@ -43,10 +43,18 @@ const selectedTitle = computed(() => (props.selectedRelationId ? '选中关系�
 <style scoped>
 .evidence-drawer {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
   align-content: start;
-  max-height: 520px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.evidence-drawer .list {
+  align-content: start;
+  min-height: 0;
   overflow: auto;
+  padding-right: 4px;
 }
 
 .evidence-meta {

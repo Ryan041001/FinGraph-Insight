@@ -8,7 +8,7 @@
         </div>
         <h1>金融知识图谱与大模型工作台</h1>
         <p>
-          基于 FinancialDatasets、AKShare 与 OpenAI 兼容模型接口，完成数据导入、图谱浏览、自动证据抓取、统一问答和上市公司行情补充。
+          基于企业基础证据、行情数据与 OpenAI 兼容模型接口，完成图谱浏览、自动证据补充、统一问答和上市公司行情研判。
         </p>
         <div class="toolbar hero-actions">
           <button type="button" @click="refreshAll" :disabled="loading">
@@ -89,7 +89,7 @@
         <ul>
           <li><CheckCircle2 :size="14" class="icon-check" /> 工商、投资事件、投资机构、金融新闻、专栏资讯、36氪新闻</li>
           <li><CheckCircle2 :size="14" class="icon-check" /> AKShare 增量新闻与股票行情</li>
-          <li><CheckCircle2 :size="14" class="icon-check" /> 金标准评测集与本地缓存</li>
+          <li><CheckCircle2 :size="14" class="icon-check" /> 基础证据缓存与自动补充线索</li>
         </ul>
       </article>
 
@@ -98,9 +98,9 @@
         <h2>可用链路</h2>
         <ul>
           <li><Zap :size="14" class="icon-zap" /> 公司名驱动的实体关系抽取入图</li>
-          <li><Zap :size="14" class="icon-zap" /> GraphRAG 与 Hybrid RAG</li>
-          <li><Zap :size="14" class="icon-zap" /> Text2Cypher 只读查询</li>
-          <li><Zap :size="14" class="icon-zap" /> 实时新闻补充与股票研判</li>
+          <li><Zap :size="14" class="icon-zap" /> 统一图谱问答与证据检索</li>
+          <li><Zap :size="14" class="icon-zap" /> 只读图查询审计结果</li>
+          <li><Zap :size="14" class="icon-zap" /> 实时证据补充与股票研判</li>
         </ul>
       </article>
     </div>
@@ -183,8 +183,7 @@ const preload = ref<PreloadState>({
 const demoCompanies = ['邦盛科技', '国投创业']
 
 const features = [
-  { path: '/workbench', label: '图谱与新闻', icon: Network },
-  { path: '/data-ops', label: '数据任务', icon: Database },
+  { path: '/workbench', label: '风险工作台', icon: Network },
   { path: '/watchlist', label: '关注追踪', icon: Star },
   { path: '/reports', label: '研判报告', icon: FileText }
 ]

@@ -219,6 +219,35 @@ def test_neo4j_reader_builds_company_profile_from_real_records():
     assert parameters["entity"] == "邦盛科技"
 
 
+def test_neo4j_reader_missing_company_does_not_fall_back_to_first_company():
+    driver = FakeDriver(
+        [
+            {
+                "nodes": [
+                    {
+                        "id": "company_bangsheng",
+                        "labels": ["Company"],
+                        "properties": {"name": "邦盛科技", "industry": "金融科技"},
+                    },
+                    {
+                        "id": "event_bangsheng_c",
+                        "labels": ["Event"],
+                        "properties": {"name": "邦盛科技C轮融资事件"},
+                    },
+                ],
+                "relationships": [],
+            }
+        ]
+    )
+
+    profile = Neo4jGraphReader(driver).company_profile("宇树科技", depth=2)
+
+    assert profile["company"]["name"] == "宇树科技"
+    assert profile["graph"]["nodes"] == []
+    assert profile["graph"]["edges"] == []
+    assert profile["profile"]["events"] == []
+
+
 def test_neo4j_reader_returns_paths_from_real_records():
     driver = FakeDriver(
         [
@@ -268,6 +297,8 @@ def test_neo4j_writer_returns_native_creation_counts():
     )
     driver = FakeCountingDriver(
         [
+            FakeResult(),
+            FakeResult(),
             FakeResult(nodes_created=1),
             FakeResult(nodes_created=0),
             FakeResult(relationships_created=1),
@@ -279,6 +310,58 @@ def test_neo4j_writer_returns_native_creation_counts():
     assert stats.nodes_created == 1
     assert stats.nodes_matched == 1
     assert stats.relationships_created == 1
+    assert stats.relationships_skipped == 0
+
+
+def test_neo4j_writer_batches_large_dataset_writes_by_label_and_relationship_shape():
+    graph = GraphPayload(
+        nodes=[
+            GraphNode(id="company_bangsheng", label="邦盛科技", type="Company"),
+            GraphNode(id="company_yushu", label="宇树科技", type="Company"),
+            GraphNode(id="event_bangsheng", label="邦盛科技C轮融资事件", type="Event"),
+        ],
+        edges=[
+            GraphEdge(
+                id="rel_bangsheng_1",
+                source="company_bangsheng",
+                target="event_bangsheng",
+                type="RECEIVED_FUNDING",
+                label="获得融资",
+            ),
+            GraphEdge(
+                id="rel_bangsheng_2",
+                source="company_yushu",
+                target="event_bangsheng",
+                type="RECEIVED_FUNDING",
+                label="获得融资",
+            ),
+        ],
+    )
+    driver = FakeCountingDriver(
+        [
+            FakeResult(),
+            FakeResult(),
+            FakeResult(nodes_created=2),
+            FakeResult(nodes_created=1),
+            FakeResult(relationships_created=2),
+        ]
+    )
+
+    stats = Neo4jGraphWriter(driver).write_graph(graph)
+
+    calls = driver.session_instance.calls
+    constraint_calls = [call for call in calls if call[0].startswith("CREATE CONSTRAINT")]
+    node_batch_calls = [call for call in calls if "UNWIND $rows AS row" in call[0] and "MERGE (n:" in call[0]]
+    relationship_batch_calls = [call for call in calls if "UNWIND $rows AS row" in call[0] and "MERGE (source)-[r:" in call[0]]
+
+    assert len(constraint_calls) == 2
+    assert len(node_batch_calls) == 2
+    assert len(relationship_batch_calls) == 1
+    assert len(node_batch_calls[0][1]["rows"]) == 2
+    assert len(relationship_batch_calls[0][1]["rows"]) == 2
+    assert stats.nodes_created == 3
+    assert stats.nodes_matched == 0
+    assert stats.relationships_created == 2
     assert stats.relationships_skipped == 0
 
 

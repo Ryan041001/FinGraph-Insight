@@ -1,22 +1,21 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { askGraphRag, askText2Cypher } from '../api/qa'
+import { streamUnifiedQa } from '../api/qa'
 import QueryWorkbenchPanel from './QueryWorkbenchPanel.vue'
+import type { UnifiedQaStreamHandlers } from '../api/qa'
 
 vi.mock('../api/qa', () => ({
-  askGraphRag: vi.fn(),
-  askText2Cypher: vi.fn()
+  streamUnifiedQa: vi.fn()
 }))
 
-const askGraphRagMock = vi.mocked(askGraphRag)
-const askText2CypherMock = vi.mocked(askText2Cypher)
+const streamUnifiedQaMock = vi.mocked(streamUnifiedQa)
 
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
 describe('QueryWorkbenchPanel', () => {
-  it('renders GraphRAG and Text2Cypher as one unified question entry', () => {
+  it('renders one unified question entry without exposing routing modes', () => {
     const wrapper = mount(QueryWorkbenchPanel, {
       props: {
         companyName: '浙江数科控股有限公司'
@@ -24,33 +23,25 @@ describe('QueryWorkbenchPanel', () => {
     })
 
     expect(wrapper.text()).toContain('统一问答入口')
-    expect(wrapper.find('[role="tablist"]').text()).toContain('GraphRAG')
-    expect(wrapper.find('[role="tablist"]').text()).toContain('Text2Cypher')
+    expect(wrapper.find('[role="tablist"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('GraphRAG')
+    expect(wrapper.text()).not.toContain('Text2Cypher')
   })
 
-  it('submits Text2Cypher questions with the current company context', async () => {
-    askText2CypherMock.mockResolvedValue({
-      cypher: 'MATCH (c:Company {name: "浙江数科控股有限公司"}) RETURN c',
-      safety: {},
-      table: { columns: [], rows: [] },
-      graph: { nodes: [], edges: [] }
+  it('submits one unified question with the current company context and renders audit result', async () => {
+    streamUnifiedQaMock.mockImplementation(async (_payload, handlers: UnifiedQaStreamHandlers) => {
+      handlers.onMetadata?.({
+        cypher: 'MATCH (c:Company {name: "浙江数科控股有限公司"}) RETURN c',
+        safety: {},
+        table: { columns: ['c'], rows: [['浙江数科控股有限公司']] },
+        graph: { nodes: [], edges: [] },
+        status: { rag: 'ok', text2cypher: 'ok' },
+        messages: []
+      })
+      handlers.onDelta?.('**存在')
+      handlers.onDelta?.('融资关系。**')
+      handlers.onDone?.('**存在融资关系。**')
     })
-
-    const wrapper = mount(QueryWorkbenchPanel, {
-      props: {
-        companyName: '浙江数科控股有限公司'
-      }
-    })
-
-    await wrapper.findAll('button').find((button) => button.text().includes('Text2Cypher'))!.trigger('click')
-    await wrapper.find('form').trigger('submit')
-    await flushPromises()
-
-    expect(askText2CypherMock).toHaveBeenCalledWith('浙江数科控股有限公司：查询这家公司的投资方和融资事件')
-  })
-
-  it('submits GraphRAG questions with the current company context', async () => {
-    askGraphRagMock.mockResolvedValue({ answer: '存在融资关系。' })
 
     const wrapper = mount(QueryWorkbenchPanel, {
       props: {
@@ -61,7 +52,208 @@ describe('QueryWorkbenchPanel', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(askGraphRagMock).toHaveBeenCalledWith('浙江数科控股有限公司：这家公司有哪些投资方和风险点？')
+    expect(streamUnifiedQaMock).toHaveBeenCalledWith({
+      question: '浙江数科控股有限公司：这家公司有哪些投资方和风险点？',
+      entity: '浙江数科控股有限公司',
+      companyName: '浙江数科控股有限公司'
+    }, expect.any(Object))
     expect(wrapper.text()).toContain('存在融资关系。')
+    expect(wrapper.text()).toContain('MATCH (c:Company')
+    expect(wrapper.text()).toContain('浙江数科控股有限公司')
+  })
+
+  it('shows a waiting prompt while the stream has not emitted answer text yet', async () => {
+    const pending = new Promise<void>(() => {})
+    streamUnifiedQaMock.mockImplementation(async (_payload, handlers: UnifiedQaStreamHandlers) => {
+      handlers.onMetadata?.({
+        table: { columns: [], rows: [] },
+        graph: { nodes: [], edges: [] },
+        status: { rag: 'pending', text2cypher: 'generated' },
+        messages: ['已开始生成回答。']
+      })
+      await pending
+    })
+
+    const wrapper = mount(QueryWorkbenchPanel, {
+      props: {
+        companyName: '浙江数科控股有限公司'
+      }
+    })
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('正在生成回答，请稍候...')
+    expect(wrapper.text()).toContain('已开始生成回答。')
+  })
+
+  it('sanitizes controlled inline html while preserving safe content', async () => {
+    streamUnifiedQaMock.mockImplementation(async (_payload, handlers: UnifiedQaStreamHandlers) => {
+      const answer = '<!-- html-render-start --><section><strong>风险卡</strong><script>alert(1)</script></section><!-- html-render-end -->'
+      handlers.onMetadata?.({
+        cypher: '',
+        safety: {},
+        table: { columns: [], rows: [] },
+        graph: { nodes: [], edges: [] },
+        status: { rag: 'ok', text2cypher: 'skipped' },
+        messages: []
+      })
+      handlers.onDelta?.(answer)
+      handlers.onDone?.(answer)
+    })
+
+    const wrapper = mount(QueryWorkbenchPanel, {
+      props: {
+        companyName: '浙江数科控股有限公司'
+      }
+    })
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.html()).toContain('风险卡')
+    expect(wrapper.html()).not.toContain('<script>')
+  })
+
+  it('renders safe inline html returned directly by the answer and removes unsafe markup', async () => {
+    streamUnifiedQaMock.mockImplementation(async (_payload, handlers: UnifiedQaStreamHandlers) => {
+      const answer = '<article class="qa-insight-card"><strong>投资方</strong><span>红杉资本</span><img src=x onerror=alert(1) /></article>'
+      handlers.onMetadata?.({
+        table: { columns: [], rows: [] },
+        graph: { nodes: [], edges: [] },
+        status: { rag: 'ok', text2cypher: 'ok' },
+        messages: []
+      })
+      handlers.onDone?.(answer)
+    })
+
+    const wrapper = mount(QueryWorkbenchPanel, {
+      props: {
+        companyName: '浙江数科控股有限公司'
+      }
+    })
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.find('.answer-content article.qa-insight-card').exists()).toBe(true)
+    expect(wrapper.text()).toContain('红杉资本')
+    expect(wrapper.html()).not.toContain('<img')
+    expect(wrapper.html()).not.toContain('onerror')
+  })
+
+  it('renders mixed markdown and direct html blocks without leaking markdown markers', async () => {
+    streamUnifiedQaMock.mockImplementation(async (_payload, handlers: UnifiedQaStreamHandlers) => {
+      const answer = [
+        '## 结论',
+        '<div class="qa-evidence-table"><table><tbody><tr><td>红杉资本</td></tr></tbody></table></div>',
+        '- **风险点**：当前图谱正常'
+      ].join('\n')
+      handlers.onMetadata?.({
+        table: { columns: [], rows: [] },
+        graph: { nodes: [], edges: [] },
+        status: { rag: 'ok', text2cypher: 'ok' },
+        messages: []
+      })
+      handlers.onDone?.(answer)
+    })
+
+    const wrapper = mount(QueryWorkbenchPanel, {
+      props: {
+        companyName: '浙江数科控股有限公司'
+      }
+    })
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.find('.answer-content h2').text()).toBe('结论')
+    expect(wrapper.find('.answer-content table').text()).toContain('红杉资本')
+    expect(wrapper.find('.answer-content li strong').text()).toBe('风险点')
+    expect(wrapper.text()).not.toContain('## 结论')
+  })
+
+  it('labels and renders the real query graph returned by audit metadata', async () => {
+    streamUnifiedQaMock.mockImplementation(async (_payload, handlers: UnifiedQaStreamHandlers) => {
+      handlers.onMetadata?.({
+        cypher: 'MATCH (c:Company {name: "星河数据"}) RETURN c',
+        safety: {},
+        table: {
+          columns: ['节点', '类型'],
+          rows: [['星河数据', 'Company']]
+        },
+        graph: {
+          nodes: [
+            { id: 'company_fixture', label: '星河数据', type: 'Company', properties: {}, risk_level: 'normal' },
+            { id: 'event_fixture', label: 'B轮融资事件', type: 'Event', properties: {}, risk_level: 'normal' }
+          ],
+          edges: [
+            {
+              id: 'rel_fixture',
+              source: 'company_fixture',
+              target: 'event_fixture',
+              type: 'RECEIVED_FUNDING',
+              label: '获得融资',
+              confidence: 0.92,
+              status: 'confirmed',
+              properties: {},
+              provenance: {}
+            }
+          ]
+        },
+        status: { rag: 'ok', text2cypher: 'ok' },
+        messages: ['已在本地图谱执行查询并生成可视化。']
+      })
+      handlers.onDone?.('已完成。')
+    })
+
+    const wrapper = mount(QueryWorkbenchPanel, {
+      props: {
+        companyName: '星河数据'
+      },
+      global: {
+        stubs: {
+          RiskGraphCanvas: {
+            props: ['nodes', 'edges'],
+            template: '<div data-testid="audit-graph">{{ nodes.map((node) => node.label).join(" ") }} {{ edges.length }}</div>'
+          }
+        }
+      }
+    })
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('真实查询图谱')
+    expect(wrapper.get('[data-testid="audit-graph"]').text()).toContain('星河数据')
+    expect(wrapper.get('[data-testid="audit-graph"]').text()).toContain('1')
+  })
+
+  it('renders markdown lists, inline code, links, and bold text safely', async () => {
+    streamUnifiedQaMock.mockImplementation(async (_payload, handlers: UnifiedQaStreamHandlers) => {
+      const answer = '## 结论\n- **风险点**：关注 `担保`。\n- 查看 [证据](https://example.com/risk)'
+      handlers.onMetadata?.({
+        table: { columns: [], rows: [] },
+        graph: { nodes: [], edges: [] },
+        status: { rag: 'ok', text2cypher: 'skipped' },
+        messages: []
+      })
+      handlers.onDone?.(answer)
+    })
+
+    const wrapper = mount(QueryWorkbenchPanel, {
+      props: {
+        companyName: '浙江数科控股有限公司'
+      }
+    })
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.find('.answer-content h2').text()).toBe('结论')
+    expect(wrapper.find('.answer-content ul').exists()).toBe(true)
+    expect(wrapper.find('.answer-content strong').text()).toContain('风险点')
+    expect(wrapper.find('.answer-content code').text()).toBe('担保')
+    expect(wrapper.find('.answer-content a').attributes('href')).toBe('https://example.com/risk')
   })
 })

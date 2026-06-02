@@ -127,6 +127,24 @@ export interface GraphRagResponse {
   [key: string]: unknown
 }
 
+export interface UnifiedQaResponse {
+  answer: string
+  cypher: string
+  safety: Record<string, unknown>
+  table: {
+    columns: string[]
+    rows: unknown[]
+  }
+  graph: GraphPayload
+  supporting_graph?: GraphPayload
+  citations?: unknown[]
+  document_context?: unknown[]
+  retrieval?: Record<string, unknown>
+  status: Record<string, unknown>
+  messages: string[]
+  [key: string]: unknown
+}
+
 export interface JobRun {
   job_run_id: string
   status: 'running' | 'success' | 'failed'

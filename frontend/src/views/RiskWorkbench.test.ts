@@ -1,7 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { analyzeStock } from '../api/analysis'
-import { getCompanyProfile } from '../api/graph'
+import { getCompanyProfile, searchCompanies } from '../api/graph'
+import { importFinancialDataset } from '../api/runtime'
 import type { CompanyProfile, GraphEdge, GraphNode } from '../api/types'
 import { loadReports, loadWatchlist } from '../product/storage'
 import RiskWorkbench from './RiskWorkbench.vue'
@@ -18,11 +19,16 @@ const riskGraphCanvasStub = vi.hoisted(() => ({
 }))
 
 vi.mock('../api/graph', () => ({
-  getCompanyProfile: vi.fn()
+  getCompanyProfile: vi.fn(),
+  searchCompanies: vi.fn()
 }))
 
 vi.mock('../api/analysis', () => ({
   analyzeStock: vi.fn()
+}))
+
+vi.mock('../api/runtime', () => ({
+  importFinancialDataset: vi.fn()
 }))
 
 const DEFAULT_COMPANY_NAME = '邦盛科技'
@@ -105,7 +111,9 @@ const secondHopEdge: GraphEdge = {
 }
 
 const getCompanyProfileMock = vi.mocked(getCompanyProfile)
+const searchCompaniesMock = vi.mocked(searchCompanies)
 const analyzeStockMock = vi.mocked(analyzeStock)
+const importFinancialDatasetMock = vi.mocked(importFinancialDataset)
 
 const docAbcEdge: GraphEdge = {
   ...investmentEdge,
@@ -155,12 +163,12 @@ function analysisPayload(overrides: Record<string, unknown> = {}) {
         title: '邦盛科技B轮融资事件',
         date: '2024-03-15',
         source_node_id: 'event_demo',
-        evidence: '数据集记录邦盛科技完成B轮融资。'
+        evidence: '证据记录邦盛科技完成B轮融资。'
       }
     ],
     subgraph: { nodes: [], edges: [] },
     analysis: {
-      summary: '基于图谱和数据集事件生成研判摘要。',
+      summary: '基于证据线索生成研判摘要。',
       opportunity_factors: [],
       risk_factors: [],
       graph_insights: [],
@@ -212,7 +220,16 @@ async function mountWorkbenchWithSearchEmitter() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  importFinancialDatasetMock.mockResolvedValue({
+    import_run_id: 'test-import',
+    nodes_created: 0,
+    relationships_created: 0,
+    nodes_skipped: 0,
+    relationships_skipped: 0,
+    status: 'success'
+  })
   getCompanyProfileMock.mockResolvedValue(makeProfile())
+  searchCompaniesMock.mockResolvedValue({ query: '', total: 0, companies: [] })
   analyzeStockMock.mockResolvedValue(analysisPayload())
 })
 
@@ -222,6 +239,8 @@ describe('RiskWorkbench', () => {
 
     const wrapper = await mountWorkbench()
 
+    expect(importFinancialDatasetMock).toHaveBeenCalledTimes(1)
+    expect(importFinancialDatasetMock.mock.invocationCallOrder[0]).toBeLessThan(getCompanyProfileMock.mock.invocationCallOrder[0])
     expect(getCompanyProfileMock).toHaveBeenCalledWith(DEFAULT_COMPANY_NAME)
     expect(wrapper.text()).toContain(DEFAULT_COMPANY_NAME)
     expect(wrapper.text()).not.toContain('示例')
@@ -240,22 +259,24 @@ describe('RiskWorkbench', () => {
     expect(wrapper.text()).toContain('关系图谱')
   })
 
-  it('automatically lists dataset and graph events after loading a company', async () => {
+  it('automatically runs unified evidence and AI analysis after loading a company', async () => {
     const wrapper = await mountWorkbench()
 
     expect(analyzeStockMock).toHaveBeenCalledWith({
       stockCode: '',
       companyName: DEFAULT_COMPANY_NAME,
-      refreshNews: false,
-      useLlm: false
+      refreshNews: true,
+      useLlm: true
     })
-    expect(wrapper.find('[data-testid="evidence-hub-panel"]').text()).toContain('无需手动粘贴新闻文本')
-    expect(wrapper.find('[data-testid="evidence-status"]').text()).toContain('本地数据集证据')
+    expect(wrapper.find('[data-testid="evidence-hub-panel"]').text()).toContain('无需手动整理材料')
+    expect(wrapper.find('[data-testid="evidence-status"]').text()).toContain('AI研判已完成')
     expect(wrapper.find('[data-testid="news-evidence-list"]').text()).toContain('邦盛科技B轮融资事件')
-    expect(wrapper.find('[data-testid="news-evidence-list"]').text()).toContain('数据集/图谱')
+    expect(wrapper.find('[data-testid="news-evidence-list"]').text()).toContain('证据线索')
+    expect(wrapper.find('[data-testid="evidence-hub-panel"]').text()).not.toContain('最新消息')
+    expect(wrapper.find('[data-testid="evidence-hub-panel"]').text()).not.toContain('新闻')
   })
 
-  it('refreshes realtime news and AI analysis from the workbench evidence hub', async () => {
+  it('refreshes unified evidence and AI analysis from the workbench evidence hub', async () => {
     analyzeStockMock
       .mockResolvedValueOnce(analysisPayload())
       .mockResolvedValueOnce(analysisPayload({
@@ -270,7 +291,7 @@ describe('RiskWorkbench', () => {
           }
         ],
         analysis: {
-          summary: '结合实时新闻后的AI研判摘要。',
+          summary: '结合证据线索后的AI研判摘要。',
           opportunity_factors: [],
           risk_factors: [],
           graph_insights: [],
@@ -282,7 +303,7 @@ describe('RiskWorkbench', () => {
 
     const wrapper = await mountWorkbench()
 
-    await wrapper.findAll('button').find((button) => button.text().includes('刷新实时新闻 + AI研判'))!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text().includes('重新分析'))!.trigger('click')
     await flushPromises()
 
     expect(analyzeStockMock).toHaveBeenLastCalledWith({
@@ -291,9 +312,9 @@ describe('RiskWorkbench', () => {
       refreshNews: true,
       useLlm: true
     })
-    expect(wrapper.find('[data-testid="evidence-status"]').text()).toContain('实时新闻 1 条')
+    expect(wrapper.find('[data-testid="evidence-status"]').text()).toContain('AI研判已完成')
     expect(wrapper.find('[data-testid="news-evidence-list"]').text()).toContain('邦盛科技发布业务更新')
-    expect(wrapper.text()).toContain('结合实时新闻后的AI研判摘要。')
+    expect(wrapper.text()).toContain('结合证据线索后的AI研判摘要。')
   })
 
   it('shows the market module as a graph-side auxiliary entry when no stock code is known', async () => {
@@ -382,6 +403,43 @@ describe('RiskWorkbench', () => {
 
     expect(getCompanyProfileMock).toHaveBeenCalledTimes(1)
     expect(getCompanyProfileMock).toHaveBeenCalledWith('招商银行')
+  })
+
+  it('keeps an unavailable user search on its no-result state instead of falling back to default', async () => {
+    getCompanyProfileMock.mockImplementation(async (query) => {
+      if (query === DEFAULT_COMPANY_NAME) {
+        return makeProfile(DEFAULT_COMPANY_NAME, [investmentEdge])
+      }
+
+      const missingProfile: CompanyProfile = {
+        ...makeProfile(String(query)),
+        found: false,
+        graph: { nodes: [], edges: [] }
+      }
+
+      return missingProfile
+    })
+
+    const wrapper = await mountWorkbench()
+    getCompanyProfileMock.mockClear()
+    analyzeStockMock.mockClear()
+
+    await wrapper.find('input[type="search"]').setValue('宇树科技')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(getCompanyProfileMock).toHaveBeenCalledTimes(1)
+    expect(getCompanyProfileMock).toHaveBeenCalledWith('宇树科技')
+    expect(getCompanyProfileMock).not.toHaveBeenCalledWith(DEFAULT_COMPANY_NAME)
+    expect(analyzeStockMock).toHaveBeenCalledWith({
+      stockCode: '',
+      companyName: '宇树科技',
+      refreshNews: true,
+      useLlm: true
+    })
+    expect(wrapper.text()).toContain('宇树科技')
+    expect(wrapper.text()).toContain('关系图谱')
+    expect(wrapper.text()).not.toContain('未查询到“宇树科技”的图谱数据')
   })
 
   it('disables duplicate same-query submit while a company analysis is loading', async () => {
@@ -539,6 +597,26 @@ describe('RiskWorkbench', () => {
     ]))
     expect(wrapper.find('[data-testid="path-list"]').text()).not.toContain('关联企业')
     expect(wrapper.find('[data-testid="evidence-list"]').text()).not.toContain('融资事件关联到下游企业。')
+  })
+
+  it('folds long path lists and keeps them expandable', async () => {
+    const extraEdges = Array.from({ length: 7 }, (_, index): GraphEdge => ({
+      ...investmentEdge,
+      id: `rel_extra_${index}`,
+      target: index % 2 === 0 ? 'investment_event' : 'affiliate_company',
+      label: `补充路径${index + 1}`
+    }))
+    getCompanyProfileMock.mockResolvedValue(makeProfile(DEFAULT_COMPANY_NAME, [investmentEdge, secondHopEdge, ...extraEdges]))
+
+    const wrapper = await mountWorkbench()
+
+    expect(wrapper.findAll('[data-testid="path-row"]')).toHaveLength(5)
+    expect(wrapper.find('[data-testid="path-list-toggle"]').text()).toContain('展开全部')
+
+    await wrapper.find('[data-testid="path-list-toggle"]').trigger('click')
+
+    expect(wrapper.findAll('[data-testid="path-row"]').length).toBeGreaterThan(5)
+    expect(wrapper.find('[data-testid="path-list-toggle"]').text()).toContain('收起路径列表')
   })
 
   it('saves the current company to the watchlist from the workbench', async () => {

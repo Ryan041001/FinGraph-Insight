@@ -30,7 +30,6 @@
 import type { Component } from 'vue'
 import {
   Activity,
-  Database,
   FileText,
   Network,
   Radar,
@@ -41,7 +40,6 @@ import { productNavItems } from './router'
 const navIcons = {
   '/overview': Activity,
   '/workbench': Radar,
-  '/data-ops': Database,
   '/watchlist': Star,
   '/reports': FileText
 } satisfies Record<(typeof productNavItems)[number]['path'], Component>

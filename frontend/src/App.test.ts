@@ -24,7 +24,7 @@ describe('App product shell', () => {
     const router = createAppRouter(createMemoryHistory())
     const routePaths = router.getRoutes().map((route) => route.path).sort()
 
-    expect(routePaths).toEqual(['/', '/data-ops', '/extraction', '/market', '/overview', '/reports', '/watchlist', '/workbench'])
+    expect(routePaths).toEqual(['/', '/extraction', '/market', '/overview', '/reports', '/watchlist', '/workbench'])
     expect(routePaths).not.toContain('/graph')
     expect(routePaths).not.toContain('/qa')
     expect(routePaths).not.toContain('/risk')
@@ -54,7 +54,7 @@ describe('App product shell', () => {
 
     const productRoutes = router.getRoutes().filter((route) => route.path !== '/' && !route.redirect)
 
-    expect(productRoutes).toHaveLength(6)
+    expect(productRoutes).toHaveLength(5)
     for (const route of productRoutes) {
       expect(typeof route.components?.default).toBe('function')
     }
@@ -65,9 +65,9 @@ describe('App product shell', () => {
     const navText = wrapper.find('nav').text()
 
     expect(navText).toContain('风险工作台')
-    expect(navText).toContain('数据任务')
     expect(navText).toContain('关注清单')
     expect(navText).toContain('研判报告')
+    expect(navText).not.toContain('数据任务')
     expect(navText).not.toContain('抽取实验室')
     expect(navText).not.toContain('行情研判')
   })
@@ -92,7 +92,6 @@ describe('App product shell', () => {
     ['/overview', '金融知识图谱与大模型工作台'],
     ['/workbench', '风险工作台'],
     ['/market', '行情研判'],
-    ['/data-ops', '数据与任务'],
     ['/watchlist', '关注清单'],
     ['/reports', '研判报告']
   ])('renders %s page heading', async (path, heading) => {

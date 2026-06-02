@@ -60,6 +60,11 @@ describe('RiskGraphCanvas', () => {
 
     const option = chartMock.setOption.mock.calls[chartMock.setOption.mock.calls.length - 1]?.[0]
     const link = option.series[0].links[0]
+    expect(option.series[0].roam).toBe('scale')
+    expect(option.series[0].data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'company', draggable: true }),
+      expect.objectContaining({ id: 'event', draggable: true })
+    ]))
     expect(option.legend[0].data).toEqual(['企业', '事件'])
     expect(link.label.formatter).toBe('风险事件')
     expect(link.lineStyle.width).toBe(4)

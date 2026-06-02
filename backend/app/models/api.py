@@ -65,6 +65,12 @@ class Text2CypherRequest(BaseModel):
     question: str
 
 
+class UnifiedQaRequest(BaseModel):
+    question: str
+    entity: str | None = None
+    company_name: str | None = None
+
+
 class DocumentIndexRequest(BaseModel):
     doc_id: str = Field(min_length=1, max_length=200)
     text: str

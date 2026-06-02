@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h1>风险工作台</h1>
-        <p>输入企业名称，自动汇总图谱、数据集事件、实时新闻和 AI 研判。</p>
+        <p>输入企业名称，自动汇总证据线索和 AI 研判。</p>
       </div>
       <CompanySearch
         v-model="keyword"
@@ -66,7 +66,7 @@
             <h3>{{ listedStockCode ? 'K 线与事件' : '待识别股票代码' }}</h3>
             <p>
               {{ listedStockCode
-                ? '作为企业节点的补充视图，查看蜡烛图、图谱事件和实时新闻增强研判。'
+                ? '作为企业节点的补充视图，查看蜡烛图和证据线索增强研判。'
                 : '当前图谱节点没有股票代码，行情模块可继续查询浦发银行、招商银行等上市公司。'
               }}
             </p>
@@ -80,12 +80,15 @@
             <button type="button" @click="saveCurrentReport">保存报告</button>
           </section>
         </aside>
+        <div class="graph-workspace-query">
+          <QueryWorkbenchPanel :company-name="model.company.name" />
+        </div>
         <div class="graph-workspace-lower">
           <section class="panel evidence-hub-panel graph-workspace-evidence-hub" data-testid="evidence-hub-panel">
             <div class="panel-title-row">
               <div>
-                <span class="eyebrow">自动证据</span>
-                <h2>数据集与新闻证据</h2>
+                <span class="eyebrow">自动研判</span>
+                <h2>证据线索研判</h2>
               </div>
               <div class="evidence-actions">
                 <span class="status" :class="evidenceStatus.tone" data-testid="evidence-status">
@@ -99,21 +102,21 @@
                 >
                   <Sparkles v-if="!evidenceLoading" :size="14" />
                   <Loader2 v-else :size="14" class="spin" />
-                  {{ evidenceLoading ? '抓取中' : '刷新实时新闻 + AI研判' }}
+                  {{ evidenceLoading ? '研判中' : '重新分析' }}
                 </button>
               </div>
             </div>
             <p class="evidence-hub-copy">
-              以当前企业为唯一入口，自动汇总本地图谱、数据集事件和可用实时新闻，再交给模型生成研判；无需手动粘贴新闻文本。
+              自动汇总当前企业的证据线索，并生成 AI 研判；无需手动整理材料。
             </p>
             <div class="evidence-stat-row">
               <article>
-                <span>数据集/图谱事件</span>
-                <strong>{{ graphEvidenceCount }}</strong>
+                <span>证据线索</span>
+                <strong>{{ evidenceItemCount }}</strong>
               </article>
               <article>
-                <span>实时新闻</span>
-                <strong>{{ liveNewsCount }}</strong>
+                <span>风险路径</span>
+                <strong>{{ visiblePaths.length }}</strong>
               </article>
               <article>
                 <span>研判置信度</span>
@@ -121,7 +124,7 @@
               </article>
             </div>
             <div v-if="evidenceLoading && !evidenceAnalysis" class="state-panel">
-              正在整理本地图谱事件和数据集证据...
+              证据线索整理中，AI研判生成中...
             </div>
             <div v-else-if="evidenceError" class="state-panel error">
               {{ evidenceError }}
@@ -130,12 +133,12 @@
               <article v-if="analysisSummary" class="analysis-brief-card">
                 <span class="eyebrow">{{ analysisBriefTitle }}</span>
                 <p>{{ analysisSummary }}</p>
-                <ul v-if="analysisMissingData.length > 0">
-                  <li v-for="item in analysisMissingData" :key="item">{{ item }}</li>
+                <ul v-if="analysisHasMissingData">
+                  <li>部分信息暂未获取，已基于现有证据生成。</li>
                 </ul>
               </article>
               <div v-if="newsEvidenceItems.length > 0" class="news-evidence-list" data-testid="news-evidence-list">
-                <article v-for="item in newsEvidenceItems" :key="item.id" class="news-evidence-card" :data-source="item.sourceKind">
+                <article v-for="item in newsEvidenceItems" :key="item.id" class="news-evidence-card">
                   <div class="news-evidence-meta">
                     <span class="source-pill">{{ item.sourceLabel }}</span>
                     <time>{{ item.date }}</time>
@@ -143,10 +146,10 @@
                   </div>
                   <strong>{{ item.title }}</strong>
                   <p>{{ item.evidence }}</p>
-                  <a v-if="item.url" :href="item.url" target="_blank" rel="noreferrer">查看新闻来源</a>
+                  <a v-if="item.url" :href="item.url" target="_blank" rel="noreferrer">查看证据来源</a>
                 </article>
               </div>
-              <p v-else class="muted">暂无可列出的新闻或图谱事件。可点击“刷新实时新闻 + AI研判”补充消息面。</p>
+              <p v-else class="muted">暂无可列出的证据线索。可点击“重新分析”补充研判。</p>
             </template>
           </section>
           <RiskSummaryPanel
@@ -161,9 +164,9 @@
                 <h3>路径列表</h3>
               </div>
             </div>
-            <div v-if="visiblePaths.length > 0" class="list path-list" data-testid="path-list">
+            <div v-if="displayedPaths.length > 0" class="list path-list" data-testid="path-list">
               <article
-                v-for="path in visiblePaths"
+                v-for="path in displayedPaths"
                 :key="path.id"
                 class="list-item path-row"
                 :class="{ 'selected-row': isRelationMatch(path.relationIds) }"
@@ -173,6 +176,15 @@
                 <strong>{{ path.label }}</strong>
                 <p class="muted">风险标签：{{ riskLevelLabel(path.riskLevel) }} ｜ 相关证据 {{ evidenceCountForPath(path.relationIds) }} 条</p>
               </article>
+              <button
+                v-if="canTogglePathList"
+                type="button"
+                class="path-list-toggle"
+                data-testid="path-list-toggle"
+                @click="pathListExpanded = !pathListExpanded"
+              >
+                {{ pathListExpanded ? '收起路径列表' : `展开全部 ${visiblePaths.length} 条路径` }}
+              </button>
             </div>
             <p v-else class="muted">暂无可展示关系路径。</p>
           </section>
@@ -180,12 +192,11 @@
         </div>
       </section>
       <div class="workbench-detail-grid">
-        <QueryWorkbenchPanel :company-name="model.company.name" />
         <ReportPreview :model="model" />
       </div>
     </div>
     <div v-else class="panel state-panel">
-      未查询到图谱数据，请从候选企业中选择或在数据任务页确认基础数据已导入。
+      未查询到“{{ keyword }}”的可用证据线索。请检查企业名称后重试。
     </div>
   </section>
 </template>
@@ -204,6 +215,7 @@ import QueryWorkbenchPanel from '../components/QueryWorkbenchPanel.vue'
 import RiskSummaryPanel from '../components/RiskSummaryPanel.vue'
 import { analyzeStock } from '../api/analysis'
 import { getCompanyProfile, searchCompanies } from '../api/graph'
+import { importFinancialDataset } from '../api/runtime'
 import { buildRiskWorkbenchModel } from '../product/riskAdapter'
 import { saveReport, saveWatchlistItem } from '../product/storage'
 import type { RiskWorkbenchModel } from '../product/types'
@@ -237,6 +249,7 @@ const companyOptions = ref<CompanySearchItem[]>([
 let requestSequence = 0
 let evidenceRequestSequence = 0
 let searchOptionTimer: number | undefined
+let datasetImportPromise: Promise<unknown> | null = null
 
 const highlightedRelationIdSet = computed(() => new Set(highlightedRelationIds.value))
 const hasHighlightedRelations = computed(() => highlightedRelationIds.value.length > 0)
@@ -313,13 +326,14 @@ const filteredEdges = computed(() => {
 })
 const filteredRelationIdSet = computed(() => new Set(filteredEdges.value.map((edge) => edge.id)))
 const evidenceAnalysisBlock = computed(() => asRecord(evidenceAnalysis.value?.analysis))
-const analysisSummary = computed(() => stringField(evidenceAnalysisBlock.value.summary, ''))
+const analysisSummary = computed(() => normalizeEvidenceCopy(stringField(evidenceAnalysisBlock.value.summary, '')))
 const analysisMissingData = computed(() => stringList(evidenceAnalysisBlock.value.missing_data))
+const analysisHasMissingData = computed(() => analysisMissingData.value.length > 0)
 const analysisBriefTitle = computed(() => {
   if (analysisMissingData.value.some((item) => item.includes('模型研判暂不可用'))) {
-    return '本地回退摘要'
+    return '证据研判摘要'
   }
-  return evidenceRealtimeRequested.value ? 'AI 研判摘要' : '本地研判摘要'
+  return 'AI 研判摘要'
 })
 const analysisConfidenceLabel = computed(() => {
   const confidence = numberField(evidenceAnalysisBlock.value.confidence, 0)
@@ -330,31 +344,25 @@ const rawNewsEvents = computed(() => {
   return Array.isArray(events) ? events : []
 })
 const newsEvidenceItems = computed(() => rawNewsEvents.value.map(toNewsEvidenceItem).filter((item) => item.title))
-const liveNewsCount = computed(() => newsEvidenceItems.value.filter((item) => item.sourceKind === 'live').length)
-const graphEvidenceCount = computed(() => newsEvidenceItems.value.filter((item) => item.sourceKind === 'graph').length)
+const evidenceItemCount = computed(() => newsEvidenceItems.value.length)
+const pathListExpanded = ref(false)
+const pathListLimit = 5
+const displayedPaths = computed(() => pathListExpanded.value ? visiblePaths.value : visiblePaths.value.slice(0, pathListLimit))
+const canTogglePathList = computed(() => visiblePaths.value.length > pathListLimit)
 const evidenceStatus = computed(() => {
-  if (evidenceLoading.value && evidenceRealtimeRequested.value) {
-    return { label: '实时新闻抓取中', tone: 'warning' }
-  }
   if (evidenceLoading.value) {
-    return { label: '整理本地证据', tone: 'warning' }
+    return { label: '证据线索研判中', tone: 'warning' }
   }
   if (evidenceError.value) {
-    return { label: '证据更新失败', tone: 'danger' }
+    return { label: '研判暂不可用', tone: 'danger' }
   }
   if (!evidenceAnalysis.value) {
     return { label: '等待企业查询', tone: '' }
   }
-  if (!evidenceRealtimeRequested.value) {
-    return { label: '本地数据集证据', tone: 'warning' }
+  if (analysisMissingData.value.length > 0) {
+    return { label: '部分信息暂未获取', tone: 'warning' }
   }
-  if (analysisMissingData.value.some((item) => item.includes('新闻补充暂不可用') || item.includes('模型研判暂不可用'))) {
-    return { label: '部分能力回退', tone: 'warning' }
-  }
-  if (liveNewsCount.value > 0) {
-    return { label: `实时新闻 ${liveNewsCount.value} 条`, tone: 'success' }
-  }
-  return { label: '实时新闻无新增', tone: 'warning' }
+  return { label: 'AI研判已完成', tone: 'success' }
 })
 const marketInsightLink = computed(() => {
   const stockCode = listedStockCode.value
@@ -417,6 +425,7 @@ async function loadCompany(value: string) {
   highlightedRelationIds.value = []
   selectedRelationId.value = ''
   selectedRelationTypes.value = []
+  pathListExpanded.value = false
 
   if (!query) {
     activeRequestQuery.value = ''
@@ -429,20 +438,24 @@ async function loadCompany(value: string) {
   loading.value = true
   error.value = ''
   try {
+    await ensureBaseDatasetImported()
+    if (requestId !== requestSequence) {
+      return
+    }
+
     const profile = await getCompanyProfile(query)
     if (requestId !== requestSequence) {
       return
     }
 
     if (profile.found === false || (profile.graph.nodes.length === 0 && profile.graph.edges.length === 0)) {
-      model.value = null
-      error.value = ''
-      await loadFallbackCompany(requestId)
+      model.value = buildTemporaryRiskWorkbenchModel(query)
+      void loadCompanyEvidence(true)
       return
     }
 
     model.value = buildRiskWorkbenchModel(profile)
-    void loadCompanyEvidence(false)
+    void loadCompanyEvidence(true)
   } catch {
     if (requestId !== requestSequence) {
       return
@@ -455,6 +468,17 @@ async function loadCompany(value: string) {
       activeRequestQuery.value = ''
     }
   }
+}
+
+function ensureBaseDatasetImported() {
+  if (!datasetImportPromise) {
+    datasetImportPromise = importFinancialDataset().catch(() => {
+      datasetImportPromise = null
+      return null
+    })
+  }
+
+  return datasetImportPromise
 }
 
 async function loadCompanyEvidence(useRealtimeAndLlm: boolean) {
@@ -479,29 +503,12 @@ async function loadCompanyEvidence(useRealtimeAndLlm: boolean) {
     evidenceAnalysis.value = result
   } catch {
     if (requestId === evidenceRequestSequence) {
-      evidenceError.value = '证据和新闻研判暂不可用，请稍后重试；图谱、路径和证据链仍可继续查看。'
+      evidenceError.value = '证据线索研判暂不可用，请稍后重试；图谱、路径和证据链仍可继续查看。'
     }
   } finally {
     if (requestId === evidenceRequestSequence) {
       evidenceLoading.value = false
     }
-  }
-}
-
-async function loadFallbackCompany(requestId: number) {
-  try {
-    const fallbackCandidates = await searchCompanies(DEFAULT_COMPANY_NAME, 1)
-    const fallbackName = fallbackCandidates.companies[0]?.name ?? DEFAULT_COMPANY_NAME
-    if (requestId !== requestSequence) {
-      return
-    }
-
-    if (fallbackName && fallbackName !== keyword.value) {
-      keyword.value = fallbackName
-    }
-    await loadCompany(fallbackName)
-  } catch {
-    // Keep the empty state if the fallback search cannot resolve a company.
   }
 }
 
@@ -615,6 +622,27 @@ function createReportId(companyId: string) {
   return `${companyId}-${randomId}`
 }
 
+function buildTemporaryRiskWorkbenchModel(companyName: string): RiskWorkbenchModel {
+  return {
+    company: {
+      id: `temporary-${companyName}`,
+      name: companyName,
+      industry: '待补充',
+      legalRepresentative: '-',
+      tags: ['证据线索', 'AI 研判']
+    },
+    risk: {
+      level: 'unknown',
+      score: 0,
+      summary: `${companyName} 暂无足够图谱关系，已切换为证据线索与 AI 研判模式。`,
+      factors: []
+    },
+    graph: { nodes: [], edges: [] },
+    evidence: [],
+    paths: []
+  }
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
 }
@@ -637,17 +665,27 @@ function stringList(value: unknown) {
 function toNewsEvidenceItem(value: unknown, index: number) {
   const event = asRecord(value)
   const url = stringField(event.source_url || event.url || event.news_url, '')
-  const sourceKind = url ? 'live' : 'graph'
   return {
-    id: `${sourceKind}-${stringField(event.title, 'event')}-${index}`,
-    title: stringField(event.title || event.label, ''),
+    id: `evidence-${stringField(event.title, 'event')}-${index}`,
+    title: normalizeEvidenceCopy(stringField(event.title || event.label, '')),
     date: stringField(event.date, '未标注日期'),
-    evidence: stringField(event.evidence || event.description, '暂无摘要或证据片段。'),
+    evidence: normalizeEvidenceCopy(stringField(event.evidence || event.description, '暂无摘要或证据片段。')),
     url,
     sentiment: stringField(event.sentiment, ''),
-    sourceKind,
-    sourceLabel: sourceKind === 'live' ? '实时新闻' : '数据集/图谱'
+    sourceLabel: '证据线索'
   }
+}
+
+function normalizeEvidenceCopy(value: string) {
+  return value
+    .replace(/实时新闻/g, '证据线索')
+    .replace(/最新消息/g, '证据线索')
+    .replace(/新闻/g, '证据')
+    .replace(/数据集事件/g, '证据线索')
+    .replace(/数据集记录/g, '证据记录')
+    .replace(/数据集/g, '证据库')
+    .replace(/本地图谱事件/g, '证据线索')
+    .replace(/图谱事件/g, '证据线索')
 }
 
 function knownMarketStockCode(companyName: string) {
@@ -668,11 +706,7 @@ onMounted(() => {
   if (routeCompany) {
     keyword.value = routeCompany
   }
-  void loadCompany(keyword.value).then(() => {
-    if (!model.value) {
-      void loadFallbackCompany(requestSequence)
-    }
-  })
+  void loadCompany(keyword.value)
 })
 </script>
 
@@ -720,6 +754,11 @@ onMounted(() => {
   align-self: stretch;
 }
 
+.graph-workspace-query {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
 .graph-workspace-lower {
   grid-column: 1 / -1;
   display: grid;
@@ -737,6 +776,7 @@ onMounted(() => {
 
 .workspace-subpanel {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -747,6 +787,20 @@ onMounted(() => {
 .graph-workspace-lower :deep(.panel),
 .workspace-subpanel {
   height: 100%;
+}
+
+.graph-workspace-paths,
+.graph-workspace-lower :deep(.evidence-drawer) {
+  height: 520px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.graph-workspace-paths .path-list {
+  align-content: start;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .quick-actions {
@@ -908,11 +962,6 @@ onMounted(() => {
   min-width: 0;
 }
 
-.news-evidence-card[data-source="live"] {
-  border-color: rgba(16, 185, 129, 0.24);
-  background: linear-gradient(145deg, rgba(236, 253, 245, 0.72), rgba(255, 255, 255, 0.94));
-}
-
 .news-evidence-meta {
   display: flex;
   align-items: center;
@@ -1004,6 +1053,21 @@ onMounted(() => {
   color: var(--accent-2);
 }
 
+.path-list-toggle {
+  justify-self: start;
+  min-height: auto;
+  border: 0;
+  background: transparent;
+  color: #0e7490;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.path-list-toggle:hover {
+  text-decoration: underline;
+}
+
 @media (max-width: 1100px) {
   .workbench-layout,
   .graph-workspace,
@@ -1017,6 +1081,11 @@ onMounted(() => {
   .workbench-detail-grid :deep(.query-workbench),
   .workbench-detail-grid :deep(.report-preview) {
     grid-column: span 1;
+  }
+
+  .graph-workspace-paths,
+  .graph-workspace-lower :deep(.evidence-drawer) {
+    height: min(520px, 72vh);
   }
 }
 
