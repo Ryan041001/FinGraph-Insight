@@ -1,8 +1,8 @@
 <template>
   <div class="relation-filter-bar">
-    <label>
+    <label for="relation-depth-select">
       关系深度
-      <select :value="depth" @change="changeDepth">
+      <select id="relation-depth-select" name="relation-depth" :value="depth" @change="changeDepth">
         <option :value="1">1 跳</option>
         <option :value="2">2 跳</option>
         <option :value="3">3 跳</option>

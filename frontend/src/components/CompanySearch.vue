@@ -5,7 +5,13 @@
       企业名称或股票代码
     </label>
     <div class="search-row">
-      <input id="company-search-input" v-model="searchValue" type="search" placeholder="输入企业名称搜索..." />
+      <input
+        id="company-search-input"
+        v-model="searchValue"
+        name="company-search"
+        type="search"
+        placeholder="输入企业名称搜索..."
+      />
       <button type="submit" :disabled="isDuplicateLoadingQuery">
         <Search v-if="!isDuplicateLoadingQuery" :size="16" />
         <Loader2 v-else :size="16" class="spin" />

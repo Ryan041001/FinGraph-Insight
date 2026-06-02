@@ -16,6 +16,18 @@ beforeEach(() => {
 })
 
 describe('QueryWorkbenchPanel', () => {
+  it('renders GraphRAG and Text2Cypher as one unified question entry', () => {
+    const wrapper = mount(QueryWorkbenchPanel, {
+      props: {
+        companyName: '浙江数科控股有限公司'
+      }
+    })
+
+    expect(wrapper.text()).toContain('统一问答入口')
+    expect(wrapper.find('[role="tablist"]').text()).toContain('GraphRAG')
+    expect(wrapper.find('[role="tablist"]').text()).toContain('Text2Cypher')
+  })
+
   it('submits Text2Cypher questions with the current company context', async () => {
     askText2CypherMock.mockResolvedValue({
       cypher: 'MATCH (c:Company {name: "浙江数科控股有限公司"}) RETURN c',
@@ -30,7 +42,8 @@ describe('QueryWorkbenchPanel', () => {
       }
     })
 
-    await wrapper.findAll('form')[1].trigger('submit')
+    await wrapper.findAll('button').find((button) => button.text().includes('Text2Cypher'))!.trigger('click')
+    await wrapper.find('form').trigger('submit')
     await flushPromises()
 
     expect(askText2CypherMock).toHaveBeenCalledWith('浙江数科控股有限公司：查询这家公司的投资方和融资事件')
@@ -45,7 +58,7 @@ describe('QueryWorkbenchPanel', () => {
       }
     })
 
-    await wrapper.findAll('form')[0].trigger('submit')
+    await wrapper.find('form').trigger('submit')
     await flushPromises()
 
     expect(askGraphRagMock).toHaveBeenCalledWith('浙江数科控股有限公司：这家公司有哪些投资方和风险点？')

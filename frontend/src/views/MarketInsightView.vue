@@ -6,8 +6,22 @@
         <p>拉取真实行情、拼接图谱事件，并生成上市公司辅助研判。</p>
       </div>
       <form class="toolbar market-form" @submit.prevent="loadAll">
-        <input v-model="stockCode" aria-label="股票代码" placeholder="600000" @input="markStockCodeEdited" />
-        <input v-model="companyName" aria-label="公司名称" placeholder="浦发银行" @input="syncKnownStockCode" />
+        <input
+          id="market-stock-code"
+          v-model="stockCode"
+          name="stock_code"
+          aria-label="股票代码"
+          placeholder="600000"
+          @input="markStockCodeEdited"
+        />
+        <input
+          id="market-company-name"
+          v-model="companyName"
+          name="company_name"
+          aria-label="公司名称"
+          placeholder="浦发银行"
+          @input="syncKnownStockCode"
+        />
         <button type="submit" :disabled="loading">
           <Search v-if="!loading" :size="16" />
           <Loader2 v-else :size="16" class="spin" />
@@ -32,7 +46,7 @@
       </article>
       <article class="metric metric-card">
         <span class="eyebrow">K 线数量</span>
-        <strong>{{ kline?.kline_data.length ?? 0 }}</strong>
+        <strong>{{ displayedKlineCount }}</strong>
       </article>
       <article class="metric metric-card">
         <span class="eyebrow">图谱事件</span>
@@ -44,25 +58,74 @@
       <section class="panel chart-panel">
         <div class="panel-title-row">
           <div>
-            <span class="eyebrow">K 线收盘走势</span>
+            <span class="eyebrow">K 线蜡烛图</span>
             <h2>{{ klineDisplayTitle }}</h2>
           </div>
           <span v-if="kline?.cache_status" class="status">{{ kline.cache_status }}</span>
         </div>
-        <div class="sparkline" aria-label="收盘价走势">
+        <div class="candlestick-chart" aria-label="OHLC 蜡烛图" data-testid="candlestick-chart">
           <div v-if="loading" class="empty-state">正在加载行情数据...</div>
-          <svg v-else-if="sparklinePoints" viewBox="0 0 640 220" preserveAspectRatio="none">
-            <defs>
-              <linearGradient id="sparklineGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stop-color="rgba(14, 165, 233, 0.3)" />
-                <stop offset="100%" stop-color="rgba(14, 165, 233, 0)" />
-              </linearGradient>
-            </defs>
-            <polygon :points="sparklineFillPoints" fill="url(#sparklineGrad)" />
-            <polyline :points="sparklinePoints" />
+          <svg v-else-if="candleChart" viewBox="0 0 640 260" preserveAspectRatio="none">
+            <g class="chart-grid">
+              <line
+                v-for="line in candleChart.gridLines"
+                :key="line.key"
+                :x1="chartBounds.left"
+                :x2="chartBounds.right"
+                :y1="line.y"
+                :y2="line.y"
+              />
+              <text
+                v-for="label in candleChart.priceLabels"
+                :key="label.key"
+                :x="chartBounds.left - 8"
+                :y="label.y + 4"
+                text-anchor="end"
+              >
+                {{ label.text }}
+              </text>
+            </g>
+            <g class="candles">
+              <g v-for="candle in candleChart.candles" :key="candle.key" class="candle" :data-direction="candle.direction">
+                <title>{{ candle.label }}</title>
+                <line
+                  class="candle-wick"
+                  :x1="candle.x"
+                  :x2="candle.x"
+                  :y1="candle.highY"
+                  :y2="candle.lowY"
+                  :stroke="candle.color"
+                />
+                <rect
+                  class="candle-body"
+                  :x="candle.bodyX"
+                  :y="candle.bodyY"
+                  :width="candle.bodyWidth"
+                  :height="candle.bodyHeight"
+                  :fill="candle.fill"
+                  :stroke="candle.color"
+                  rx="1.5"
+                />
+              </g>
+            </g>
+            <g class="date-axis">
+              <text
+                v-for="label in candleChart.dateLabels"
+                :key="label.key"
+                :x="label.x"
+                :y="chartBounds.bottom + 22"
+                text-anchor="middle"
+              >
+                {{ label.text }}
+              </text>
+            </g>
           </svg>
           <div v-else class="empty-state">暂无行情数据。</div>
         </div>
+        <p v-if="invalidKlinePointCount > 0" class="chart-data-note" data-testid="kline-filter-note">
+          <AlertCircle :size="14" />
+          已过滤 {{ invalidKlinePointCount }} 条异常行情点，蜡烛图仅展示合法 OHLC 数据。
+        </p>
         <div class="event-strip">
           <article v-for="event in kline?.events ?? []" :key="`${event.date}-${event.label}`">
             <div class="event-timeline">
@@ -84,11 +147,16 @@
             <span class="eyebrow">图谱增强研判</span>
             <h2>{{ resultTitle }}</h2>
           </div>
-          <button type="button" class="secondary" @click="loadSubmittedAnalysis(true)" :disabled="analysisLoading || !submittedCompanyName">
-            <Sparkles v-if="!analysisLoading" :size="14" />
-            <Loader2 v-else :size="14" class="spin" />
-            {{ analysisLoading ? '生成中' : '调用模型增强' }}
-          </button>
+          <div class="analysis-actions">
+            <span class="status" :class="newsSupplementStatus.tone" data-testid="news-status">
+              {{ newsSupplementStatus.label }}
+            </span>
+            <button type="button" class="secondary" @click="loadSubmittedAnalysis(true)" :disabled="analysisLoading || !submittedCompanyName">
+              <Sparkles v-if="!analysisLoading" :size="14" />
+              <Loader2 v-else :size="14" class="spin" />
+              {{ analysisLoading ? '生成中' : '模型增强 + 实时新闻' }}
+            </button>
+          </div>
         </div>
         <div v-if="analysisLoading" class="state-panel">正在生成研判...</div>
         <div v-else-if="analysisError" class="state-panel error">{{ analysisError }}</div>
@@ -103,6 +171,10 @@
               </div>
               <strong>{{ percent(analysisView.confidence) }}</strong>
             </div>
+          </article>
+          <article class="news-status-card" :data-status="newsSupplementStatus.tone" data-testid="news-status-detail">
+            <Info :size="14" />
+            <span>{{ newsSupplementStatus.detail }}</span>
           </article>
           <div class="analysis-columns">
             <article class="factor-panel opportunity">
@@ -172,6 +244,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRoute, type RouteLocationNormalizedLoaded } from 'vue-router'
 import {
   AlertCircle,
   Info,
@@ -183,7 +256,7 @@ import {
   TrendingUp
 } from 'lucide-vue-next'
 import { analyzeStock } from '../api/analysis'
-import { getKline, type KlineResponse } from '../api/market'
+import { getKline, type KlinePoint, type KlineResponse } from '../api/market'
 import { plainTextFromMarkdown } from '../product/text'
 
 const stockCode = ref('')
@@ -196,9 +269,26 @@ const kline = ref<KlineResponse | null>(null)
 const analysis = ref<Record<string, unknown> | null>(null)
 const stockCodeEdited = ref(false)
 const analysisUsesLlm = ref(false)
+const analysisRefreshNewsRequested = ref(false)
 const submittedCompanyName = ref('')
 const submittedStockCode = ref('')
 const DEFAULT_KLINE_STOCK_CODE = '600000'
+const chartBounds = {
+  width: 640,
+  height: 260,
+  left: 54,
+  right: 622,
+  top: 18,
+  bottom: 226
+} as const
+let klineRequestSequence = 0
+let analysisRequestSequence = 0
+let route: RouteLocationNormalizedLoaded | null = null
+try {
+  route = useRoute()
+} catch {
+  route = null
+}
 
 const KNOWN_STOCKS: Record<string, string> = {
   浦发银行: '600000',
@@ -256,69 +346,109 @@ const analysisView = computed(() => {
     industry: stringField(fundamentals.industry || fundamentals.sector, '未知'),
     dataTime: stringField(fundamentals.data_time, '未知'),
     eventCount: events.length,
+    liveNewsCount: events.filter(isLiveNewsEvent).length,
     edgeCount: edges.length
   }
 })
 
-const sparklinePoints = computed(() => {
-  const points = kline.value?.kline_data ?? []
-  if (points.length === 0) {
-    return ''
+const newsSupplementStatus = computed(() => {
+  if (analysisLoading.value && analysisRefreshNewsRequested.value) {
+    return {
+      label: '实时新闻补充中',
+      detail: '正在请求实时新闻并交给模型合并研判，请稍候。',
+      tone: 'warning'
+    }
   }
-  const closes = points.map((point) => point.close)
-  const min = Math.min(...closes)
-  const max = Math.max(...closes)
-  const span = max - min || 1
-  return closes.map((close, index) => {
-    const x = points.length === 1 ? 0 : (index / (points.length - 1)) * 640
-    const y = 200 - ((close - min) / span) * 180
-    return `${x.toFixed(1)},${y.toFixed(1)}`
-  }).join(' ')
+
+  if (analysisError.value && analysisRefreshNewsRequested.value) {
+    return {
+      label: '实时新闻失败',
+      detail: '模型增强或实时新闻请求失败，请稍后重试；当前页面保留已有图谱与行情结果。',
+      tone: 'danger'
+    }
+  }
+
+  if (!analysis.value || !analysisView.value) {
+    return {
+      label: '实时新闻待请求',
+      detail: '完成查询后，可点击“模型增强 + 实时新闻”补充消息面。',
+      tone: ''
+    }
+  }
+
+  if (!analysisRefreshNewsRequested.value) {
+    return {
+      label: '本地图谱事件',
+      detail: `当前使用本地图谱、基本面和 ${analysisView.value.eventCount} 条图谱事件；尚未请求实时新闻。`,
+      tone: 'warning'
+    }
+  }
+
+  const newsFallback = analysisView.value.missingData.find((item) => item.includes('新闻补充暂不可用'))
+  if (newsFallback) {
+    return {
+      label: '实时新闻回退',
+      detail: newsFallback,
+      tone: 'warning'
+    }
+  }
+
+  if (analysisView.value.liveNewsCount > 0) {
+    return {
+      label: `实时新闻 ${analysisView.value.liveNewsCount} 条`,
+      detail: `已请求实时新闻补充，并合并 ${analysisView.value.liveNewsCount} 条实时新闻与 ${analysisView.value.eventCount} 条消息/图谱事件。`,
+      tone: 'success'
+    }
+  }
+
+  return {
+    label: '实时新闻无新增',
+    detail: '已请求实时新闻补充，后端未返回新增新闻；研判仍基于图谱事件、基本面和免责声明展示。',
+    tone: 'warning'
+  }
 })
 
-const sparklineFillPoints = computed(() => {
-  if (!sparklinePoints.value) return ''
-  const first = sparklinePoints.value.split(' ')[0]
-  const last = sparklinePoints.value.split(' ').pop()
-  return `${first} ${sparklinePoints.value} ${last} 640,220 0,220`
-})
+const validKlinePoints = computed(() => (kline.value?.kline_data ?? []).filter(isValidKlinePoint))
+const invalidKlinePointCount = computed(() => Math.max(0, (kline.value?.kline_data.length ?? 0) - validKlinePoints.value.length))
+const displayedKlineCount = computed(() => validKlinePoints.value.length)
+const candleChart = computed(() => buildCandlestickChart(validKlinePoints.value))
 
 async function loadAll() {
+  const klineRequestId = ++klineRequestSequence
   loading.value = true
   error.value = ''
   analysisError.value = ''
   kline.value = null
   analysis.value = null
   analysisUsesLlm.value = false
+  analysisRefreshNewsRequested.value = false
   submittedStockCode.value = ''
   submittedCompanyName.value = companyName.value.trim()
   try {
     const matchedCode = resolveKnownStockCode(companyName.value)
-    stockCode.value = matchedCode || ''
+    if (matchedCode && !stockCodeEdited.value) {
+      stockCode.value = matchedCode
+    }
     const submittedCode = normalizeStockCode(stockCode.value)
     const queryStockCode = submittedCode || DEFAULT_KLINE_STOCK_CODE
     const queryCompanyName = companyName.value.trim() || queryStockCode
     submittedStockCode.value = submittedCode
     submittedCompanyName.value = queryCompanyName
 
-    const [klineResult, analysisResult] = await Promise.allSettled([
-      getKline(queryStockCode, 'A', 'daily', queryCompanyName),
-      loadAnalysis(false, queryStockCode, queryCompanyName)
-    ])
+    void loadAnalysis(false, queryStockCode, queryCompanyName, ++analysisRequestSequence)
 
-    if (klineResult.status === 'fulfilled') {
-      kline.value = klineResult.value
-    } else {
-      error.value = klineResult.reason instanceof Error ? klineResult.reason.message : '行情加载失败'
-    }
-
-    if (analysisResult.status === 'rejected') {
-      analysisError.value = analysisResult.reason instanceof Error ? analysisResult.reason.message : '研判生成失败'
+    const klineResult = await getKline(queryStockCode, 'A', 'daily', queryCompanyName)
+    if (klineRequestId === klineRequestSequence) {
+      kline.value = klineResult
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '行情加载失败'
+    if (klineRequestId === klineRequestSequence) {
+      error.value = err instanceof Error ? err.message : '行情加载失败'
+    }
   } finally {
-    loading.value = false
+    if (klineRequestId === klineRequestSequence) {
+      loading.value = false
+    }
   }
 }
 
@@ -326,26 +456,36 @@ function loadSubmittedAnalysis(useLlm: boolean) {
   return loadAnalysis(
     useLlm,
     submittedStockCode.value || normalizeStockCode(stockCode.value),
-    submittedCompanyName.value || companyName.value.trim() || normalizeStockCode(stockCode.value)
+    submittedCompanyName.value || companyName.value.trim() || normalizeStockCode(stockCode.value),
+    ++analysisRequestSequence
   )
 }
 
-async function loadAnalysis(useLlm: boolean, queryStockCode: string, queryCompanyName: string) {
+async function loadAnalysis(useLlm: boolean, queryStockCode: string, queryCompanyName: string, requestId: number) {
   analysisLoading.value = true
   analysisError.value = ''
+  analysisRefreshNewsRequested.value = useLlm
   try {
-    analysis.value = await analyzeStock({
+    const result = await analyzeStock({
       stockCode: queryStockCode,
       companyName: queryCompanyName,
-      refreshNews: false,
+      refreshNews: useLlm,
       useLlm
     })
+    if (requestId !== analysisRequestSequence) {
+      return
+    }
+    analysis.value = result
     analysisUsesLlm.value = useLlm
   } catch (err) {
-    analysis.value = null
-    analysisError.value = err instanceof Error ? err.message : '研判生成失败'
+    if (requestId === analysisRequestSequence) {
+      analysis.value = null
+      analysisError.value = err instanceof Error ? err.message : '研判生成失败'
+    }
   } finally {
-    analysisLoading.value = false
+    if (requestId === analysisRequestSequence) {
+      analysisLoading.value = false
+    }
   }
 }
 
@@ -410,6 +550,15 @@ function stringList(value: unknown) {
     .filter(Boolean)
 }
 
+function isLiveNewsEvent(value: unknown) {
+  const record = asRecord(value)
+  return Boolean(
+    stringField(record.source_url, '') ||
+    stringField(record.url, '') ||
+    stringField(record.news_url, '')
+  )
+}
+
 function graphInsightList(value: unknown, nodeLabels: Map<string, string>) {
   if (!Array.isArray(value)) {
     return []
@@ -465,7 +614,105 @@ function replaceNodeIds(value: string, nodeLabels: Map<string, string>) {
   return result
 }
 
-onMounted(loadAll)
+function isValidKlinePoint(point: KlinePoint) {
+  const ohlc = [point.open, point.high, point.low, point.close]
+  if (!point.date || !ohlc.every((value) => Number.isFinite(value) && value > 0)) {
+    return false
+  }
+
+  return point.high >= Math.max(point.open, point.close, point.low) &&
+    point.low <= Math.min(point.open, point.close, point.high)
+}
+
+function buildCandlestickChart(points: KlinePoint[]) {
+  if (points.length === 0) {
+    return null
+  }
+
+  const innerHeight = chartBounds.bottom - chartBounds.top
+  const innerWidth = chartBounds.right - chartBounds.left
+  const lows = points.map((point) => point.low)
+  const highs = points.map((point) => point.high)
+  const rawMin = Math.min(...lows)
+  const rawMax = Math.max(...highs)
+  const padding = (rawMax - rawMin || Math.max(rawMax, 1)) * 0.04
+  const min = rawMin - padding
+  const max = rawMax + padding
+  const span = max - min || 1
+  const slotWidth = innerWidth / points.length
+  const bodyWidth = Math.min(14, Math.max(4, slotWidth * 0.48))
+  const scaleY = (value: number) => chartBounds.top + ((max - value) / span) * innerHeight
+
+  const candles = points.map((point, index) => {
+    const x = chartBounds.left + slotWidth * (index + 0.5)
+    const openY = scaleY(point.open)
+    const closeY = scaleY(point.close)
+    const highY = scaleY(point.high)
+    const lowY = scaleY(point.low)
+    const isRising = point.close >= point.open
+    const color = isRising ? '#dc2626' : '#059669'
+    const bodyY = Math.min(openY, closeY)
+    const bodyHeight = Math.max(2, Math.abs(closeY - openY))
+
+    return {
+      key: `${point.date}-${index}`,
+      x,
+      highY,
+      lowY,
+      bodyX: x - bodyWidth / 2,
+      bodyY,
+      bodyWidth,
+      bodyHeight,
+      color,
+      fill: isRising ? 'rgba(220, 38, 38, 0.22)' : 'rgba(5, 150, 105, 0.82)',
+      direction: isRising ? 'up' : 'down',
+      label: `${point.date} 开 ${point.open} 高 ${point.high} 低 ${point.low} 收 ${point.close}`
+    }
+  })
+  const priceLabels = Array.from({ length: 5 }, (_, index) => {
+    const value = max - (span / 4) * index
+    const y = scaleY(value)
+    return {
+      key: `price-${index}`,
+      y,
+      text: value.toFixed(2)
+    }
+  })
+  const gridLines = priceLabels.map((label) => ({
+    key: `grid-${label.key}`,
+    y: label.y
+  }))
+  const dateIndexes = Array.from(new Set([
+    0,
+    Math.floor((points.length - 1) / 2),
+    points.length - 1
+  ]))
+  const dateLabels = dateIndexes.map((index) => ({
+    key: `date-${index}`,
+    x: chartBounds.left + slotWidth * (index + 0.5),
+    text: points[index].date.slice(5)
+  }))
+
+  return {
+    candles,
+    priceLabels,
+    gridLines,
+    dateLabels
+  }
+}
+
+onMounted(() => {
+  const routeCompany = typeof route?.query.company === 'string' ? route.query.company : ''
+  const routeStockCode = typeof route?.query.stock_code === 'string' ? route.query.stock_code : ''
+  if (routeCompany) {
+    companyName.value = routeCompany
+  }
+  if (routeStockCode) {
+    stockCode.value = routeStockCode
+    stockCodeEdited.value = true
+  }
+  void loadAll()
+})
 </script>
 
 <style scoped>
@@ -532,26 +779,74 @@ onMounted(loadAll)
   gap: 16px;
 }
 
-.sparkline {
+.candlestick-chart {
   min-height: 320px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: linear-gradient(180deg, #f8fbff, #f1f5f9);
+  background:
+    linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(241, 245, 249, 0.92)),
+    radial-gradient(circle at top right, rgba(14, 165, 233, 0.14), transparent 34%);
   overflow: hidden;
+  position: relative;
 }
 
-.sparkline svg {
+.candlestick-chart svg {
   display: block;
   width: 100%;
   height: 320px;
 }
 
-.sparkline polyline {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.chart-grid line {
+  stroke: rgba(148, 163, 184, 0.26);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-grid text,
+.date-axis text {
+  fill: #64748b;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.candle-wick,
+.candle-body {
+  vector-effect: non-scaling-stroke;
+}
+
+.candle-wick {
+  stroke-width: 1.4;
+}
+
+.candle-body {
+  stroke-width: 1.6;
+  transition: opacity 160ms ease, transform 160ms ease;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.candle:hover .candle-body {
+  opacity: 0.82;
+  transform: scaleY(1.04);
+}
+
+.chart-data-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  margin: -4px 0 0;
+  border: 1px solid rgba(245, 158, 11, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 251, 235, 0.76);
+  color: #92400e;
+  padding: 7px 11px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chart-data-note svg {
+  flex-shrink: 0;
 }
 
 .event-strip {
@@ -623,10 +918,19 @@ onMounted(loadAll)
   gap: 14px;
 }
 
+.analysis-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .analysis-summary,
 .analysis-columns article,
 .analysis-list-card,
-.fundamental-card {
+.fundamental-card,
+.news-status-card {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.9));
@@ -779,6 +1083,36 @@ onMounted(loadAll)
 .warning-card {
   border-color: rgba(245, 158, 11, 0.3);
   background: linear-gradient(145deg, rgba(254, 249, 195, 0.6), rgba(255, 251, 235, 0.8));
+}
+
+.news-status-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.news-status-card svg {
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.news-status-card[data-status="success"] {
+  border-color: rgba(16, 185, 129, 0.28);
+  background: linear-gradient(145deg, rgba(236, 253, 245, 0.78), rgba(209, 250, 229, 0.42));
+}
+
+.news-status-card[data-status="warning"] {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: linear-gradient(145deg, rgba(254, 249, 195, 0.6), rgba(255, 251, 235, 0.8));
+}
+
+.news-status-card[data-status="danger"] {
+  border-color: rgba(239, 68, 68, 0.28);
+  background: linear-gradient(145deg, rgba(254, 242, 242, 0.76), rgba(254, 226, 226, 0.45));
 }
 
 .disclaimer {

@@ -32,8 +32,6 @@ import {
   Activity,
   Database,
   FileText,
-  FlaskConical,
-  Gauge,
   Network,
   Radar,
   Star
@@ -43,8 +41,6 @@ import { productNavItems } from './router'
 const navIcons = {
   '/overview': Activity,
   '/workbench': Radar,
-  '/extraction': FlaskConical,
-  '/market': Gauge,
   '/data-ops': Database,
   '/watchlist': Star,
   '/reports': FileText

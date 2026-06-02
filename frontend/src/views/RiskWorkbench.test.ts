@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { analyzeStock } from '../api/analysis'
 import { getCompanyProfile } from '../api/graph'
 import type { CompanyProfile, GraphEdge, GraphNode } from '../api/types'
 import { loadReports, loadWatchlist } from '../product/storage'
@@ -20,7 +21,11 @@ vi.mock('../api/graph', () => ({
   getCompanyProfile: vi.fn()
 }))
 
-const DEFAULT_COMPANY_NAME = '浙江数科控股有限公司'
+vi.mock('../api/analysis', () => ({
+  analyzeStock: vi.fn()
+}))
+
+const DEFAULT_COMPANY_NAME = '邦盛科技'
 
 const companyNode: GraphNode = {
   id: 'company_demo',
@@ -100,6 +105,7 @@ const secondHopEdge: GraphEdge = {
 }
 
 const getCompanyProfileMock = vi.mocked(getCompanyProfile)
+const analyzeStockMock = vi.mocked(analyzeStock)
 
 const docAbcEdge: GraphEdge = {
   ...investmentEdge,
@@ -135,6 +141,34 @@ function makeProfile(companyName = DEFAULT_COMPANY_NAME, edges: GraphEdge[] = []
       ],
       edges
     }
+  }
+}
+
+function analysisPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    target: { stock_code: '', company_name: DEFAULT_COMPANY_NAME },
+    fundamentals: { industry: '金融科技', data_time: 'local-cache' },
+    news_events: [
+      {
+        event_type: 'graph_event',
+        sentiment: 'unknown',
+        title: '邦盛科技B轮融资事件',
+        date: '2024-03-15',
+        source_node_id: 'event_demo',
+        evidence: '数据集记录邦盛科技完成B轮融资。'
+      }
+    ],
+    subgraph: { nodes: [], edges: [] },
+    analysis: {
+      summary: '基于图谱和数据集事件生成研判摘要。',
+      opportunity_factors: [],
+      risk_factors: [],
+      graph_insights: [],
+      confidence: 0.74,
+      missing_data: [],
+      disclaimer: '本结果仅用于研究辅助，不构成投资建议。'
+    },
+    ...overrides
   }
 }
 
@@ -179,6 +213,7 @@ async function mountWorkbenchWithSearchEmitter() {
 beforeEach(() => {
   vi.clearAllMocks()
   getCompanyProfileMock.mockResolvedValue(makeProfile())
+  analyzeStockMock.mockResolvedValue(analysisPayload())
 })
 
 describe('RiskWorkbench', () => {
@@ -203,6 +238,84 @@ describe('RiskWorkbench', () => {
     expect(wrapper.text()).not.toContain('图谱视图将在下一步升级为可交互风险路径。')
     expect(wrapper.text()).not.toContain('关联图谱')
     expect(wrapper.text()).toContain('关系图谱')
+  })
+
+  it('automatically lists dataset and graph events after loading a company', async () => {
+    const wrapper = await mountWorkbench()
+
+    expect(analyzeStockMock).toHaveBeenCalledWith({
+      stockCode: '',
+      companyName: DEFAULT_COMPANY_NAME,
+      refreshNews: false,
+      useLlm: false
+    })
+    expect(wrapper.find('[data-testid="evidence-hub-panel"]').text()).toContain('无需手动粘贴新闻文本')
+    expect(wrapper.find('[data-testid="evidence-status"]').text()).toContain('本地数据集证据')
+    expect(wrapper.find('[data-testid="news-evidence-list"]').text()).toContain('邦盛科技B轮融资事件')
+    expect(wrapper.find('[data-testid="news-evidence-list"]').text()).toContain('数据集/图谱')
+  })
+
+  it('refreshes realtime news and AI analysis from the workbench evidence hub', async () => {
+    analyzeStockMock
+      .mockResolvedValueOnce(analysisPayload())
+      .mockResolvedValueOnce(analysisPayload({
+        news_events: [
+          {
+            event_type: 'announcement',
+            sentiment: 'neutral',
+            title: '邦盛科技发布业务更新',
+            date: '2026-06-01',
+            source_url: 'https://example.com/news',
+            evidence: '公开新闻摘要。'
+          }
+        ],
+        analysis: {
+          summary: '结合实时新闻后的AI研判摘要。',
+          opportunity_factors: [],
+          risk_factors: [],
+          graph_insights: [],
+          confidence: 0.82,
+          missing_data: [],
+          disclaimer: '本结果仅用于研究辅助，不构成投资建议。'
+        }
+      }))
+
+    const wrapper = await mountWorkbench()
+
+    await wrapper.findAll('button').find((button) => button.text().includes('刷新实时新闻 + AI研判'))!.trigger('click')
+    await flushPromises()
+
+    expect(analyzeStockMock).toHaveBeenLastCalledWith({
+      stockCode: '',
+      companyName: DEFAULT_COMPANY_NAME,
+      refreshNews: true,
+      useLlm: true
+    })
+    expect(wrapper.find('[data-testid="evidence-status"]').text()).toContain('实时新闻 1 条')
+    expect(wrapper.find('[data-testid="news-evidence-list"]').text()).toContain('邦盛科技发布业务更新')
+    expect(wrapper.text()).toContain('结合实时新闻后的AI研判摘要。')
+  })
+
+  it('shows the market module as a graph-side auxiliary entry when no stock code is known', async () => {
+    const wrapper = await mountWorkbench()
+    const marketModule = wrapper.find('.market-mini-module')
+
+    expect(marketModule.text()).toContain('上市公司行情')
+    expect(marketModule.text()).toContain('待识别股票代码')
+    expect(marketModule.find('.market-module-link').attributes('href')).toBe('/market')
+  })
+
+  it('links known listed companies to the market candlestick module with query context', async () => {
+    getCompanyProfileMock.mockResolvedValue(makeProfile('招商银行'))
+
+    const wrapper = await mountWorkbench()
+    const marketModule = wrapper.find('.market-mini-module')
+
+    expect(marketModule.text()).toContain('K 线与事件')
+    expect(marketModule.text()).toContain('打开行情模块')
+    expect(marketModule.find('.market-module-link').attributes('href')).toBe(
+      '/market?company=%E6%8B%9B%E5%95%86%E9%93%B6%E8%A1%8C&stock_code=600036'
+    )
   })
 
   it('does not render raw relation or document IDs in product UI text', async () => {
@@ -302,7 +415,7 @@ describe('RiskWorkbench', () => {
     })
 
     const wrapper = mount(RiskWorkbench)
-    await flushPromises()
+    await wrapper.vm.$nextTick()
 
     await wrapper.find('input[type="search"]').setValue('快速企业')
     expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeUndefined()

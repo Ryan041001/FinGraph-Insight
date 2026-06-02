@@ -2,40 +2,60 @@
   <section class="panel query-workbench">
     <div class="panel-title-row">
       <div>
-        <span class="eyebrow">模型查询</span>
-        <h2>GraphRAG 与 Text2Cypher</h2>
+        <span class="eyebrow">图谱问答</span>
+        <h2>统一问答入口</h2>
       </div>
     </div>
 
-    <div class="query-grid">
-      <form class="query-card" @submit.prevent="submitGraphRag">
-        <label>GraphRAG 追问</label>
-        <textarea v-model="graphQuestion" rows="4" />
-        <button type="submit" :disabled="graphLoading">{{ graphLoading ? '生成中' : '发送追问' }}</button>
-        <article v-if="graphAnswer" class="answer-card">
-          <strong>回答</strong>
-          <p>{{ graphAnswer }}</p>
-        </article>
-      </form>
-
-      <form class="query-card" @submit.prevent="submitText2Cypher">
-        <label>Text2Cypher</label>
-        <textarea v-model="cypherQuestion" rows="4" />
-        <button type="submit" :disabled="cypherLoading">{{ cypherLoading ? '生成中' : '生成查询' }}</button>
-        <article v-if="cypherResult" class="answer-card">
-          <strong>Cypher</strong>
-          <p><code>{{ cypherResult.cypher }}</code></p>
-          <small v-if="cypherResult.note">{{ cypherResult.note }}</small>
-        </article>
-      </form>
+    <div class="query-mode-tabs" role="tablist" aria-label="问答模式">
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="mode === 'graph-rag'"
+        :class="{ active: mode === 'graph-rag' }"
+        @click="selectMode('graph-rag')"
+      >
+        GraphRAG
+        <span>开放追问</span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="mode === 'text2cypher'"
+        :class="{ active: mode === 'text2cypher' }"
+        @click="selectMode('text2cypher')"
+      >
+        Text2Cypher
+        <span>精确查询</span>
+      </button>
     </div>
+
+    <form class="query-card" @submit.prevent="submitActiveQuery">
+      <label for="query-workbench-question">{{ modeMeta.label }}</label>
+      <textarea id="query-workbench-question" v-model="activeQuestion" name="query-workbench-question" rows="4" />
+      <div class="query-footer">
+        <span>{{ modeMeta.hint }}</span>
+        <button type="submit" :disabled="activeLoading">{{ activeLoading ? '生成中' : modeMeta.action }}</button>
+      </div>
+    </form>
+
+    <article v-if="mode === 'graph-rag' && graphAnswer" class="answer-card">
+      <strong>回答</strong>
+      <p>{{ graphAnswer }}</p>
+    </article>
+
+    <article v-if="mode === 'text2cypher' && cypherResult" class="answer-card">
+      <strong>Cypher</strong>
+      <p><code>{{ cypherResult.cypher }}</code></p>
+      <small v-if="cypherResult.note">{{ cypherResult.note }}</small>
+    </article>
 
     <p v-if="error" class="state-panel">{{ error }}</p>
   </section>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { askGraphRag, askText2Cypher } from '../api/qa'
 import type { GraphRagResponse, Text2CypherResponse } from '../api/types'
 import { plainTextFromMarkdown } from '../product/text'
@@ -51,12 +71,49 @@ const cypherLoading = ref(false)
 const graphAnswer = ref('')
 const cypherResult = ref<Text2CypherResponse | null>(null)
 const error = ref('')
+const mode = ref<'graph-rag' | 'text2cypher'>('graph-rag')
 let requestSequence = 0
+
+const activeQuestion = computed({
+  get: () => mode.value === 'graph-rag' ? graphQuestion.value : cypherQuestion.value,
+  set: (value: string) => {
+    if (mode.value === 'graph-rag') {
+      graphQuestion.value = value
+    } else {
+      cypherQuestion.value = value
+    }
+  }
+})
+const activeLoading = computed(() => mode.value === 'graph-rag' ? graphLoading.value : cypherLoading.value)
+const modeMeta = computed(() => {
+  if (mode.value === 'graph-rag') {
+    return {
+      label: 'GraphRAG 追问',
+      hint: '适合问风险、投资方、证据解释。',
+      action: '发送追问'
+    }
+  }
+
+  return {
+    label: 'Text2Cypher',
+    hint: '适合生成可审计的只读图查询。',
+    action: '生成查询'
+  }
+})
 
 watch(() => props.companyName, () => {
   graphAnswer.value = ''
   cypherResult.value = null
 })
+
+function selectMode(value: 'graph-rag' | 'text2cypher') {
+  mode.value = value
+  error.value = ''
+}
+
+function submitActiveQuery() {
+  return mode.value === 'graph-rag' ? submitGraphRag() : submitText2Cypher()
+}
 
 async function submitGraphRag() {
   const question = graphQuestion.value.trim()
@@ -125,10 +182,36 @@ function normalizeGraphAnswer(result: GraphRagResponse) {
   gap: 14px;
 }
 
-.query-grid {
+.query-mode-tabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 10px;
+}
+
+.query-mode-tabs button {
+  display: grid;
+  justify-items: start;
+  gap: 3px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.74);
+  color: #475569;
+  min-height: 58px;
+  text-align: left;
+}
+
+.query-mode-tabs button span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.query-mode-tabs button.active {
+  border-color: rgba(14, 143, 179, 0.38);
+  background:
+    linear-gradient(135deg, rgba(14, 165, 233, 0.13), rgba(99, 102, 241, 0.08)),
+    #ffffff;
+  color: #075985;
+  box-shadow: var(--shadow-sm);
 }
 
 .query-card {
@@ -145,10 +228,25 @@ function normalizeGraphAnswer(result: GraphRagResponse) {
   font-size: 13px;
 }
 
+.query-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.query-footer span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .answer-card {
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(14, 165, 233, 0.08);
+  background:
+    linear-gradient(145deg, rgba(14, 165, 233, 0.09), rgba(236, 253, 245, 0.62)),
+    #ffffff;
   padding: 12px;
 }
 

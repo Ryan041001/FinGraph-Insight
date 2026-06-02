@@ -8,7 +8,7 @@
         </div>
         <h1>金融知识图谱与大模型工作台</h1>
         <p>
-          基于 FinancialDatasets、AKShare 与 OpenAI 兼容模型接口，完成数据导入、图谱浏览、实时抽取、图谱问答和行情研判。
+          基于 FinancialDatasets、AKShare 与 OpenAI 兼容模型接口，完成数据导入、图谱浏览、自动证据抓取、统一问答和上市公司行情补充。
         </p>
         <div class="toolbar hero-actions">
           <button type="button" @click="refreshAll" :disabled="loading">
@@ -97,10 +97,10 @@
         <span class="eyebrow">模型能力</span>
         <h2>可用链路</h2>
         <ul>
-          <li><Zap :size="14" class="icon-zap" /> 实体关系抽取</li>
+          <li><Zap :size="14" class="icon-zap" /> 公司名驱动的实体关系抽取入图</li>
           <li><Zap :size="14" class="icon-zap" /> GraphRAG 与 Hybrid RAG</li>
           <li><Zap :size="14" class="icon-zap" /> Text2Cypher 只读查询</li>
-          <li><Zap :size="14" class="icon-zap" /> 股票研判与新闻补充</li>
+          <li><Zap :size="14" class="icon-zap" /> 实时新闻补充与股票研判</li>
         </ul>
       </article>
     </div>
@@ -161,7 +161,6 @@ import {
   Shield,
   Sparkles,
   Zap,
-  ChartLine,
   FileText,
   Star
 } from 'lucide-vue-next'
@@ -184,9 +183,7 @@ const preload = ref<PreloadState>({
 const demoCompanies = ['邦盛科技', '国投创业']
 
 const features = [
-  { path: '/workbench', label: '图谱浏览', icon: Network },
-  { path: '/extraction', label: '抽取入图', icon: Zap },
-  { path: '/market', label: '行情研判', icon: ChartLine },
+  { path: '/workbench', label: '图谱与新闻', icon: Network },
   { path: '/data-ops', label: '数据任务', icon: Database },
   { path: '/watchlist', label: '关注追踪', icon: Star },
   { path: '/reports', label: '研判报告', icon: FileText }
