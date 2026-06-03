@@ -57,6 +57,24 @@ class CapturingStreamingGateway:
         yield "HTML 输出测试"
 
 
+class TaskAwareNewsGateway:
+    def complete(self, *, task, messages, temperature=0.2, max_tokens=None):
+        if str(task) == "news_search":
+            return (
+                '{"events":[{"event_type":"product","topic":"机器人","sentiment":"positive",'
+                '"title":"宇树科技发布四足机器人新品","date":"2026-06-01",'
+                '"source_url":"https://example.com/unitree",'
+                '"evidence":"宇树科技公开披露机器人产品进展。"}]}'
+            )
+        return (
+            '{"entities":[{"name":"宇树科技","type":"Company","evidence":"宇树科技"},'
+            '{"name":"机器人","type":"Industry","evidence":"机器人"}],'
+            '"relationships":[{"head":"宇树科技","relation":"涉及主题","tail":"机器人",'
+            '"evidence":"宇树科技发布四足机器人新品","confidence":0.86}],'
+            '"warnings":[]}'
+        )
+
+
 def test_health_reports_scheduler_and_graph_status():
     response = client.get("/health")
 
@@ -489,6 +507,44 @@ def test_unified_qa_uses_public_evidence_for_missing_local_company(monkeypatch):
     assert "邦盛科技" not in rendered
 
 
+def test_unified_qa_merges_public_news_into_supporting_graph_for_current_response(monkeypatch):
+    from app.services.news_service import reset_news_event_cache
+
+    graph_store.clear()
+    reset_news_event_cache()
+    monkeypatch.setattr("app.main.settings.graph_backend", "memory")
+    monkeypatch.setattr("app.services.graph_runtime.settings.graph_backend", "memory")
+    monkeypatch.setattr("app.main.HttpLLMGateway", lambda: TaskAwareNewsGateway())
+    monkeypatch.setattr("app.main.generate_cypher_with_llm", lambda question, gateway: ("MATCH (c:Company) RETURN c LIMIT 50", ["readonly"]))
+    monkeypatch.setattr(
+        "app.main.answer_with_hybrid_rag",
+        lambda question, entity, gateway: {
+            "answer": "暂无可用证据线索。",
+            "supporting_graph": {"nodes": [], "edges": []},
+            "citations": [],
+            "document_context": [],
+            "retrieval": {"mode": "hybrid", "graph_nodes": 0, "graph_edges": 0, "document_chunks": 0},
+        },
+    )
+
+    response = client.post(
+        "/qa/unified",
+        json={"question": "有什么资料？", "entity": "宇树科技"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    supporting_labels = {node["label"] for node in payload["supporting_graph"]["nodes"]}
+    supporting_edge_types = {edge["type"] for edge in payload["supporting_graph"]["edges"]}
+
+    assert "宇树科技" in supporting_labels
+    assert "宇树科技发布四足机器人新品" in supporting_labels
+    assert "机器人" in supporting_labels
+    assert "MENTIONED_IN" in supporting_edge_types
+    assert "HAS_TOPIC" in supporting_edge_types
+    assert graph_store.subgraph("宇树科技").edges
+
+
 def test_unified_qa_memory_mode_returns_real_query_graph_for_audit_visualization(monkeypatch):
     graph_store.clear()
     company = GraphNode(
@@ -624,8 +680,9 @@ def test_unified_qa_neo4j_mode_enriches_node_only_audit_result_with_entity_subgr
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"]["text2cypher"] == "ok"
-    assert {node["label"] for node in payload["graph"]["nodes"]} >= {"星河数据", "星河数据B轮融资事件"}
-    assert {edge["label"] for edge in payload["graph"]["edges"]} >= {"获得融资"}
+    assert payload["graph"] == payload["supporting_graph"]
+    assert {node["label"] for node in payload["graph"]["nodes"]} == {"星河数据"}
+    assert payload["graph"]["edges"] == []
     assert payload["table"]["rows"] == [["星河数据"]]
     assert any("Neo4j" in message for message in payload["messages"])
 
@@ -659,8 +716,9 @@ def test_unified_qa_adds_inline_html_evidence_table_when_llm_answer_is_plain_tex
     assert response.status_code == 200
     answer = response.json()["answer"]
     assert "星河数据当前未发现高风险证据。" in answer
-    assert '<div class="qa-insight-card" style=' in answer
-    assert '<table class="qa-evidence-table" style=' in answer
+    assert '<div style=' in answer
+    assert '<table style=' in answer
+    assert 'class=' not in answer
     assert 'border: 1px solid' in answer
     assert 'background:' in answer
     assert ">节点</th>" in answer
@@ -676,7 +734,8 @@ def test_unified_qa_adds_evidence_table_when_llm_answer_has_html_list_without_ta
     )
 
     assert "<ul><li>当前未发现高风险标记。</li></ul>" in answer
-    assert '<table class="qa-evidence-table" style=' in answer
+    assert '<table style=' in answer
+    assert 'class=' not in answer
     assert ">星河数据</td>" in answer
 
 
@@ -791,10 +850,9 @@ def test_graph_rag_stream_prompt_supports_bounded_html_fragments(monkeypatch):
     assert "<!-- html-render-start -->" in system_prompt
     assert "<!-- html-render-end -->" in system_prompt
     assert "禁止输出 <!DOCTYPE html>" in system_prompt
-    assert "禁止 style 属性" in system_prompt
-    assert "禁止输出 <!DOCTYPE html>" in system_prompt
     assert "禁止输出 <!DOCTYPE html>、<html>、<head>、<body>、<style>、<script>" in system_prompt
-    assert "可以使用语义 class" in system_prompt
+    assert "必须 100% 使用内联 style 属性" in system_prompt
+    assert "禁止 class 属性" in system_prompt
 
 
 def test_graph_rag_stream_sends_ping_while_waiting_for_llm(monkeypatch):
@@ -874,12 +932,68 @@ def test_unified_qa_stream_returns_sse_events(monkeypatch):
     assert "event: done" in body
 
 
-def test_stock_analysis_stream_returns_sse_events(monkeypatch):
+def test_unified_qa_stream_visual_graph_matches_supporting_graph(monkeypatch):
+    graph_store.clear()
+    monkeypatch.setattr("app.main.settings.graph_backend", "neo4j")
     monkeypatch.setattr("app.main.HttpLLMGateway", lambda: StreamingGateway())
+    monkeypatch.setattr("app.main.get_neo4j_driver", lambda: "driver")
+    monkeypatch.setattr(
+        "app.main.generate_cypher_with_llm",
+        lambda question, gateway: ("MATCH (c:Company) RETURN c LIMIT 50", ["readonly"]),
+    )
+    monkeypatch.setattr(
+        "app.main.execute_readonly_cypher",
+        lambda driver, cypher: {
+            "table": {"columns": ["company"], "rows": [["全量公司"]]},
+            "graph": {
+                "nodes": [{"id": "company_unrelated", "label": "不相关公司", "type": "Company", "properties": {}, "risk_level": "normal"}],
+                "edges": [],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "app.main.answer_with_hybrid_rag",
+        lambda question, entity, gateway: {
+            "answer": "",
+            "supporting_graph": {
+                "nodes": [{"id": "company_target", "label": "星河数据", "type": "Company", "properties": {}, "risk_level": "normal"}],
+                "edges": [],
+            },
+            "citations": [],
+            "document_context": [],
+            "retrieval": {"mode": "hybrid", "graph_nodes": 1, "graph_edges": 0, "document_chunks": 0},
+        },
+    )
+
+    response = client.post(
+        "/qa/unified/stream",
+        json={"question": "有哪些风险？", "entity": "星河数据"},
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert "星河数据" in body
+    assert "不相关公司" not in body
+
+
+def test_stock_analysis_stream_emits_news_events_before_done(monkeypatch):
+    from app.services.news_service import reset_news_event_cache
+
+    graph_store.clear()
+    reset_news_event_cache()
+    monkeypatch.setattr("app.main.settings.graph_backend", "memory")
+    monkeypatch.setattr(
+        "app.main.HttpLLMGateway",
+        lambda: FakeGateway(
+            '{"events":[{"event_type":"litigation","sentiment":"negative",'
+            '"title":"涉及诉讼","date":"2024-03-15","source_url":"https://example.com",'
+            '"evidence":"公告披露涉及诉讼。"}]}'
+        ),
+    )
 
     response = client.post(
         "/analysis/stock/stream",
-        json={"stock_code": "600000", "company_name": "端测云链科技有限公司"},
+        json={"stock_code": "600000", "company_name": "端测云链科技有限公司", "refresh_news": True},
     )
 
     assert response.status_code == 200
@@ -888,9 +1002,12 @@ def test_stock_analysis_stream_returns_sse_events(monkeypatch):
     assert "event: metadata" in body
     assert "端测云链科技有限公司" in body
     assert "tool_calls" in body
-    assert "event: delta" in body
-    assert "第一段" in body
+    assert "event: status" in body
+    assert "event: news_event" in body
+    assert "涉及诉讼" in body
+    assert "event: subgraph" in body
     assert "event: done" in body
+    assert body.index("event: news_event") < body.index("event: done")
 
 
 def test_metrics_extraction_requires_real_predictor_configuration():

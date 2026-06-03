@@ -24,13 +24,16 @@ FORBIDDEN_KEYWORDS = {
     "CALL APOC",
 }
 
-ALLOWED_LABELS = {"Company", "Person", "Institution", "Event", "Industry", "Document"}
+ALLOWED_LABELS = {"Company", "Person", "Institution", "Event", "Industry", "Document", "Topic"}
 ALLOWED_RELATIONSHIPS = {
     "INVESTED_IN",
     "RECEIVED_FUNDING",
     "HOLDS_SHARES",
     "LEGAL_REP_OF",
     "EXECUTIVE_OF",
+    "MENTIONED_IN",
+    "HAS_TOPIC",
+    "SUPPORTED_BY",
 }
 
 
@@ -120,6 +123,9 @@ def generate_cypher_with_llm(question: str, gateway: LLMGateway) -> tuple[str, l
         "(投资方)-[:INVESTED_IN]->(Event)；(Company)-[:RECEIVED_FUNDING]->(Event)；"
         "(投资方)-[:HOLDS_SHARES]->(Company)；(Person)-[:LEGAL_REP_OF]->(Company)；"
         "(Person)-[:EXECUTIVE_OF]->(Company)。"
+        "实时新闻入图关系方向："
+        "(Company)-[:MENTIONED_IN]->(Event)；(Event)-[:HAS_TOPIC]->(Topic)；"
+        "(Event)-[:SUPPORTED_BY]->(Document)。"
         "查‘某公司的投资方’应经事件桥接，且投资方节点不要限定标签（投资方可能是 Institution/Company/Person）："
         "(c:Company)-[:RECEIVED_FUNDING]->(:Event)<-[:INVESTED_IN]-(inv) 返回 inv。"
         "不要在 Company 与投资方之间直接连 INVESTED_IN（INVESTED_IN 指向 Event）。"

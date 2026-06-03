@@ -36,3 +36,15 @@ def test_sanitize_readonly_cypher_rejects_unknown_schema_labels():
 def test_sanitize_readonly_cypher_rejects_unknown_schema_relationships():
     with pytest.raises(ValueError, match="INVESTS_IN"):
         sanitize_readonly_cypher("MATCH (i:Institution)-[:INVESTS_IN]->(e:Event) RETURN i, e")
+
+
+def test_sanitize_readonly_cypher_allows_realtime_news_graph_schema():
+    cypher, rules = sanitize_readonly_cypher(
+        "MATCH (c:Company)-[:MENTIONED_IN]->(e:Event)-[:HAS_TOPIC]->(t:Topic) "
+        "MATCH (e)-[:SUPPORTED_BY]->(d:Document) RETURN c, e, t, d"
+    )
+
+    assert "MENTIONED_IN" in cypher
+    assert "HAS_TOPIC" in cypher
+    assert "SUPPORTED_BY" in cypher
+    assert "schema_checked" in rules

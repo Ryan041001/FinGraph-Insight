@@ -607,13 +607,13 @@ def unified_qa(request: UnifiedQaRequest) -> dict:
     rag_response = context["rag_response"]
     answer = str(rag_response.get("answer") or "暂未获得有效回答，请稍后重试。")
     answer = _ensure_inline_html_answer(answer, context["table"])
-    supporting_graph = rag_response.get("supporting_graph") or context["graph"].model_dump()
+    supporting_graph = _answer_supporting_graph(rag_response, context["graph"])
     return {
         "answer": answer,
         "cypher": context["cypher"],
         "safety": context["safety"],
         "table": context["table"],
-        "graph": context["query_graph"],
+        "graph": supporting_graph,
         "supporting_graph": supporting_graph,
         "citations": rag_response.get("citations", []),
         "document_context": rag_response.get("document_context", []),
@@ -668,9 +668,9 @@ def _build_inline_evidence_table(table: dict[str, object]) -> str:
         body_rows.append(f"<tr>{''.join(cells)}</tr>")
 
     return (
-        f'<div class="qa-insight-card" style="{card_style}">'
+        f'<div style="{card_style}">'
         f'<strong style="{title_style}">审计证据摘要</strong>'
-        f'<table class="qa-evidence-table" style="{table_style}">'
+        f'<table style="{table_style}">'
         f"<thead><tr>{header}</tr></thead>"
         f"<tbody>{''.join(body_rows)}</tbody>"
         "</table>"
@@ -690,12 +690,12 @@ def _html_table_cell(value: object) -> str:
 def unified_qa_stream(request: UnifiedQaRequest) -> StreamingResponse:
     context = _build_unified_qa_context(request, use_llm_answer=False)
     rag_response = context["rag_response"]
-    supporting_graph = rag_response.get("supporting_graph") or context["graph"].model_dump()
+    supporting_graph = _answer_supporting_graph(rag_response, context["graph"])
     metadata = {
         "cypher": context["cypher"],
         "safety": context["safety"],
         "table": context["table"],
-        "graph": context["query_graph"],
+        "graph": supporting_graph,
         "supporting_graph": supporting_graph,
         "citations": rag_response.get("citations", []),
         "document_context": rag_response.get("document_context", []),
@@ -736,6 +736,16 @@ def unified_qa_stream(request: UnifiedQaRequest) -> StreamingResponse:
         max_tokens=1024,
     )
     return _sse_stream(token_stream, metadata=metadata)
+
+
+def _answer_supporting_graph(rag_response: dict[str, object], fallback_graph: GraphPayload) -> dict[str, object]:
+    supporting_graph = rag_response.get("supporting_graph")
+    if isinstance(supporting_graph, dict):
+        nodes = supporting_graph.get("nodes")
+        edges = supporting_graph.get("edges")
+        if isinstance(nodes, list) and isinstance(edges, list):
+            return supporting_graph
+    return fallback_graph.model_dump()
 
 
 def _build_unified_qa_context(request: UnifiedQaRequest, *, use_llm_answer: bool) -> dict[str, Any]:
@@ -801,6 +811,15 @@ def _build_unified_qa_context(request: UnifiedQaRequest, *, use_llm_answer: bool
         )
         if augmented_response is not rag_response:
             rag_response = augmented_response
+            refreshed_graph = _runtime_subgraph_payload(target_entity)
+            if refreshed_graph.nodes or refreshed_graph.edges:
+                graph = refreshed_graph
+                if _graph_edge_count(query_graph) == 0:
+                    memory_result = _build_memory_audit_query_result(target_entity, graph)
+                    table = memory_result["table"]
+                    query_graph = memory_result["graph"]
+                    if memory_result["has_graph"]:
+                        status["text2cypher"] = "ok"
             messages.append("已补充企业证据线索并继续回答。")
 
     return {
@@ -902,6 +921,8 @@ def _augment_unified_response_with_public_evidence(
     retrieval = rag_response.get("retrieval")
     if not isinstance(retrieval, dict):
         retrieval = {}
+    refreshed_graph = _runtime_subgraph_payload(target_entity)
+    supporting_graph = refreshed_graph.model_dump() if (refreshed_graph.nodes or refreshed_graph.edges) else graph.model_dump()
 
     return {
         **rag_response,
@@ -910,12 +931,14 @@ def _augment_unified_response_with_public_evidence(
             document_context=document_context,
             analysis=analysis,
         ),
-        "supporting_graph": rag_response.get("supporting_graph") or graph.model_dump(),
+        "supporting_graph": supporting_graph,
         "document_context": document_context,
         "citations": [*(rag_response.get("citations") if isinstance(rag_response.get("citations"), list) else []), *citations],
         "retrieval": {
             **retrieval,
             "mode": "hybrid",
+            "graph_nodes": len(supporting_graph.get("nodes", [])),
+            "graph_edges": len(supporting_graph.get("edges", [])),
             "document_chunks": document_context and len(document_context) or 0,
             "realtime_events": len(document_context),
             "answer_source": "evidence_fallback",
@@ -1147,35 +1170,73 @@ def latest_stock_analysis(stock_code: str) -> dict:
 
 @app.post("/analysis/stock/stream")
 def stock_analysis_stream(payload: dict) -> StreamingResponse:
-    base = build_stock_analysis(payload)
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "你是图谱增强金融研判助手。只能基于输入材料生成研究辅助摘要。"
-                "直接输出适合前端逐字展示的中文文本，必须包含风险提示和免责声明，"
-                "不得输出买入、卖出、目标价或收益承诺。"
-                f"\n{HTML_CHAT_FORMAT_INSTRUCTIONS}"
-            ),
-        },
-        {"role": "user", "content": json.dumps(base, ensure_ascii=False)},
-    ]
-    token_stream = HttpLLMGateway().stream_complete(
-        task=LLMTask.STOCK_ANALYSIS_STREAM,
-        messages=messages,
-        temperature=0.1,
-        max_tokens=2048,
-    )
-    return _sse_stream(
-        token_stream,
-        metadata={
-            "target": base["target"],
-            "fundamentals": base["fundamentals"],
-            "news_events": base["news_events"],
-            "subgraph": base["subgraph"],
-            "tool_calls": _stock_tool_calls(base["target"]),
-        },
-    )
+    def events():
+        queue: Queue[tuple[str, dict[str, Any] | None]] = Queue()
+
+        def emit(event: str, data: dict[str, Any]) -> None:
+            queue.put((event, data))
+
+        def build_analysis() -> None:
+            try:
+                stock_code = str(payload.get("stock_code") or "")
+                company_name = str(payload.get("company_name") or stock_code or "未知上市公司")
+                target = {"stock_code": stock_code, "company_name": company_name}
+                emit("metadata", {"target": target, "tool_calls": _stock_tool_calls(target)})
+                emit("status", {"stage": "evidence", "message": "正在补充证据线索。"})
+
+                result = _build_stock_analysis_for_stream(payload, emit)
+                emit("subgraph", {"subgraph": result.get("subgraph", {"nodes": [], "edges": []})})
+
+                if bool(payload.get("use_llm", False)):
+                    emit("status", {"stage": "analysis", "message": "正在生成 AI 研判。"})
+                    try:
+                        result = summarize_stock_analysis_with_llm(result, HttpLLMGateway())
+                    except Exception:
+                        missing_data = result["analysis"].setdefault("missing_data", [])
+                        missing_data.append("部分信息暂未获取，已基于现有证据生成。")
+
+                _sanitize_stock_analysis_missing_data(result)
+                stock_code = str(result.get("target", {}).get("stock_code") or payload.get("stock_code") or "")
+                if stock_code:
+                    _record_stock_analysis(stock_code, result)
+                emit("analysis", {"analysis": result.get("analysis", {})})
+                emit("done", result)
+            except Exception as exc:
+                logger.warning("stock analysis SSE failed: %s", exc, exc_info=True)
+                emit("error", {"error": "analysis_error", "message": "证据线索研判暂不可用，请稍后重试。"})
+            finally:
+                queue.put(("close", None))
+
+        Thread(target=build_analysis, daemon=True).start()
+
+        while True:
+            try:
+                event_type, data = queue.get(timeout=SSE_HEARTBEAT_SECONDS)
+            except Empty:
+                yield _sse_event("ping", {"status": "waiting"})
+                continue
+
+            if event_type == "close":
+                break
+            yield _sse_event(event_type, data or {})
+
+    return StreamingResponse(events(), media_type="text/event-stream")
+
+
+def _build_stock_analysis_for_stream(payload: dict, emit) -> dict:
+    if payload.get("refresh_news"):
+        try:
+            return build_stock_analysis(
+                payload,
+                news_gateway=HttpLLMGateway(),
+                on_news_event=lambda event: emit("news_event", {"event": event}),
+            )
+        except Exception:
+            result = build_stock_analysis({**payload, "refresh_news": False})
+            missing_data = result["analysis"].setdefault("missing_data", [])
+            missing_data.append("部分信息暂未获取，已基于现有证据生成。")
+            return result
+    return build_stock_analysis(payload)
 
 
 @app.get("/market/kline/{stock_code}")

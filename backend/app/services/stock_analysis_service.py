@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 from app.models.api import GraphPayload
 from app.services.company_enrichment_service import enrich_company_by_stock_code
 from app.services.news_service import search_news_events
+from app.services.news_graph_service import import_news_events_to_graph
 from app.services.graph_store import graph_store
 from app.services.llm_service import LLMGateway, LLMTask
 from app.services.llm_json import parse_llm_json_object
@@ -15,7 +17,11 @@ DISCLAIMER = "本结果仅用于课程项目演示和研究辅助，不构成投
 PRODUCT_MISSING_DATA_MESSAGE = "部分信息暂未获取，已基于现有证据生成。"
 
 
-def build_stock_analysis(payload: dict[str, Any], news_gateway: LLMGateway | None = None) -> dict[str, Any]:
+def build_stock_analysis(
+    payload: dict[str, Any],
+    news_gateway: LLMGateway | None = None,
+    on_news_event: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     stock_code = str(payload.get("stock_code") or "")
     company_name = str(payload.get("company_name") or stock_code or "未知上市公司")
     market = str(payload.get("market") or "A")
@@ -31,9 +37,18 @@ def build_stock_analysis(payload: dict[str, Any], news_gateway: LLMGateway | Non
 
     graph = graph_store.subgraph(company_name, depth=depth)
 
+    live_news_events: list[dict[str, Any]] = []
     news_events = _events_from_graph(graph)
     if payload.get("refresh_news") and news_gateway is not None:
-        news_events = [*search_news_events(company_name, news_gateway), *news_events]
+        live_news_events = search_news_events(company_name, news_gateway)
+        if live_news_events:
+            if on_news_event is not None:
+                for event in live_news_events:
+                    on_news_event(dict(event))
+            import_news_events_to_graph(company_name, live_news_events, gateway=news_gateway)
+            graph = graph_store.subgraph(company_name, depth=depth)
+            news_events = _events_from_graph(graph)
+        news_events = [*live_news_events, *news_events]
 
     fundamentals = {
         "stock_code": stock_code,

@@ -39,6 +39,8 @@ class Settings(BaseSettings):
         alias="CORS_ALLOW_ORIGINS",
     )
     stock_analysis_cache_max_size: int = Field(default=64, alias="STOCK_ANALYSIS_CACHE_MAX_SIZE")
+    news_event_cache_ttl_seconds: int = Field(default=1800, alias="NEWS_EVENT_CACHE_TTL_SECONDS")
+    news_event_cache_max_size: int = Field(default=128, alias="NEWS_EVENT_CACHE_MAX_SIZE")
     job_run_history_max_size: int = Field(default=50, alias="JOB_RUN_HISTORY_MAX_SIZE")
     startup_preload_dataset: bool = Field(default=True, alias="STARTUP_PRELOAD_DATASET")
     startup_refresh_akshare: bool = Field(default=False, alias="STARTUP_REFRESH_AKSHARE")

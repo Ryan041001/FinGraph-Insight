@@ -44,9 +44,9 @@ describe("AskPanel", () => {
     askGraphRagMock.mockResolvedValue({
       answer: [
         "该企业当前证据如下：",
-        '<div class="qa-insight-card" style="border: 1px solid #bae6fd; background: #f0f9ff;">',
+        '<div style="border: 1px solid #bae6fd; background: #f0f9ff;">',
         '<strong style="color: #075985;">审计证据摘要</strong>',
-        '<table class="qa-evidence-table" style="border-collapse: collapse;">',
+        '<table style="border-collapse: collapse;">',
         '<tbody><tr><td style="border: 1px solid #bae6fd;">星河数据</td></tr></tbody>',
         "</table>",
         "</div>",
@@ -62,19 +62,41 @@ describe("AskPanel", () => {
     await wrapper.find("form").trigger("submit");
     await flushPromises();
 
-    const card = wrapper.find(".answer-content .qa-insight-card");
+    const card = wrapper.find(".answer-content div");
     expect(card.exists()).toBe(true);
     expect(card.attributes("style")).toContain("border");
-    expect(wrapper.find(".answer-content .qa-evidence-table").exists()).toBe(
-      true,
-    );
+    expect(wrapper.find(".answer-content table").exists()).toBe(true);
+    expect(wrapper.find(".answer-content").html()).not.toContain("qa-evidence-table");
     expect(wrapper.text()).toContain("星河数据");
+  });
+
+  it("renders marked and entity-encoded html fragments", async () => {
+    askGraphRagMock.mockResolvedValue({
+      answer:
+        '<!-- html-render-start -->&lt;div style="border: 1px solid #bae6fd; padding: 8px;"&gt;<strong>实时预览</strong>&lt;/div&gt;<!-- html-render-end -->',
+    });
+
+    const wrapper = mount(AskPanel, {
+      props: {
+        companyName: "浙江数科控股有限公司",
+      },
+    });
+
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    const card = wrapper.find(".answer-content div");
+    expect(card.exists()).toBe(true);
+    expect(card.attributes("style")).toContain("border");
+    expect(wrapper.text()).toContain("实时预览");
+    expect(wrapper.text()).not.toContain("html-render-start");
+    expect(wrapper.find(".answer-content").html()).not.toContain("&lt;div");
   });
 
   it("removes unsafe html from rendered answers", async () => {
     askGraphRagMock.mockResolvedValue({
       answer:
-        '<div class="qa-insight-card" onclick="alert(1)"><strong>风险卡</strong><script>alert(1)</script></div>',
+        '<div style="border: 1px solid #bae6fd;" class="qa-insight-card" onclick="alert(1)"><strong>风险卡</strong><script>alert(1)</script></div>',
     });
 
     const wrapper = mount(AskPanel, {
@@ -88,6 +110,7 @@ describe("AskPanel", () => {
 
     expect(wrapper.text()).toContain("风险卡");
     expect(wrapper.html()).not.toContain("<script");
+    expect(wrapper.find(".answer-content").html()).not.toContain("qa-insight-card");
     expect(wrapper.html()).not.toContain("onclick");
   });
 

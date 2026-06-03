@@ -60,6 +60,11 @@ describe('QueryWorkbenchPanel', () => {
     expect(wrapper.text()).toContain('存在融资关系。')
     expect(wrapper.text()).toContain('MATCH (c:Company')
     expect(wrapper.text()).toContain('浙江数科控股有限公司')
+    expect(wrapper.find('.audit-card table').exists()).toBe(false)
+    expect(wrapper.find('.cypher-code').text()).toContain('MATCH')
+    expect(wrapper.find('.cypher-token-keyword').text()).toBe('MATCH')
+    expect(wrapper.find('.cypher-token-label').text()).toBe(':Company')
+    expect(wrapper.find('.cypher-token-property').text()).toBe('name')
   })
 
   it('shows a waiting prompt while the stream has not emitted answer text yet', async () => {
@@ -117,7 +122,7 @@ describe('QueryWorkbenchPanel', () => {
 
   it('renders safe inline html returned directly by the answer and removes unsafe markup', async () => {
     streamUnifiedQaMock.mockImplementation(async (_payload, handlers: UnifiedQaStreamHandlers) => {
-      const answer = '<article class="qa-insight-card"><strong>投资方</strong><span>红杉资本</span><img src=x onerror=alert(1) /></article>'
+      const answer = '<article style="border: 1px solid #bae6fd; padding: 8px;"><strong>投资方</strong><span>红杉资本</span><img src=x onerror=alert(1) /></article>'
       handlers.onMetadata?.({
         table: { columns: [], rows: [] },
         graph: { nodes: [], edges: [] },
@@ -136,17 +141,83 @@ describe('QueryWorkbenchPanel', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.find('.answer-content article.qa-insight-card').exists()).toBe(true)
+    expect(wrapper.find('.answer-content article').exists()).toBe(true)
+    expect(wrapper.find('.answer-content article').attributes('style')).toContain('border')
     expect(wrapper.text()).toContain('红杉资本')
     expect(wrapper.html()).not.toContain('<img')
     expect(wrapper.html()).not.toContain('onerror')
+  })
+
+  it('buffers incomplete streamed html instead of rendering raw tags', async () => {
+    let continueStream!: () => void
+    const waitForNextChunk = new Promise<void>((resolve) => {
+      continueStream = resolve
+    })
+    const finalAnswer = '<div style="border: 1px solid #bae6fd; padding: 8px;"><strong>风险卡</strong></div>'
+    streamUnifiedQaMock.mockImplementation(async (_payload, handlers: UnifiedQaStreamHandlers) => {
+      handlers.onDelta?.('<div style="border: 1px solid #bae6fd; padding: 8px;">')
+      await waitForNextChunk
+      handlers.onDelta?.('<strong>风险卡</strong></div>')
+      handlers.onDone?.(finalAnswer)
+    })
+
+    const wrapper = mount(QueryWorkbenchPanel, {
+      props: {
+        companyName: '浙江数科控股有限公司'
+      }
+    })
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.find('.answer-content').html()).not.toContain('&lt;div')
+    expect(wrapper.find('.answer-content').text()).not.toContain('<div')
+
+    continueStream()
+    await flushPromises()
+
+    expect(wrapper.find('.answer-content div').attributes('style')).toContain('border')
+    expect(wrapper.text()).toContain('风险卡')
+  })
+
+  it('renders a live preview for open marked html fragments', async () => {
+    let finishStream!: () => void
+    const waitForEndMarker = new Promise<void>((resolve) => {
+      finishStream = resolve
+    })
+    streamUnifiedQaMock.mockImplementation(async (_payload, handlers: UnifiedQaStreamHandlers) => {
+      handlers.onDelta?.('<!-- html-render-start -->&lt;div style="border: 1px solid #bae6fd; padding: 8px;"&gt;<strong>实时预览</strong>')
+      await waitForEndMarker
+      const finalAnswer = '<!-- html-render-start --><div style="border: 1px solid #bae6fd; padding: 8px;"><strong>实时预览</strong></div><!-- html-render-end -->'
+      handlers.onDone?.(finalAnswer)
+    })
+
+    const wrapper = mount(QueryWorkbenchPanel, {
+      props: {
+        companyName: '浙江数科控股有限公司'
+      }
+    })
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('实时预览')
+    expect(wrapper.find('.answer-content div').attributes('style')).toContain('border')
+    expect(wrapper.text()).not.toContain('html-render-start')
+    expect(wrapper.find('.answer-content').html()).not.toContain('&lt;div')
+
+    finishStream()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('实时预览')
+    expect(wrapper.find('.answer-content div').attributes('style')).toContain('border')
   })
 
   it('renders mixed markdown and direct html blocks without leaking markdown markers', async () => {
     streamUnifiedQaMock.mockImplementation(async (_payload, handlers: UnifiedQaStreamHandlers) => {
       const answer = [
         '## 结论',
-        '<div class="qa-evidence-table"><table><tbody><tr><td>红杉资本</td></tr></tbody></table></div>',
+        '<div style="border: 1px solid #bae6fd;"><table><tbody><tr><td>红杉资本</td></tr></tbody></table></div>',
         '- **风险点**：当前图谱正常'
       ].join('\n')
       handlers.onMetadata?.({
