@@ -21,11 +21,20 @@ npm install
 npm run dev
 ```
 
-Docker Compose：
+Docker Compose（推荐用于生产部署）：
 
 ```powershell
+# Windows
+docker-commands.bat start
+
+# Linux/Mac
+./docker-commands.sh start
+
+# 或直接使用 docker-compose
 docker compose up --build
 ```
+
+详细的 Docker 部署指南请参考 [DOCKER.md](DOCKER.md)。
 
 ## 当前状态
 

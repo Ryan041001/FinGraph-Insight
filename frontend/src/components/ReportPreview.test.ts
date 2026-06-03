@@ -29,7 +29,7 @@ const model: RiskWorkbenchModel = {
 }
 
 describe('ReportPreview', () => {
-  it('renders a due diligence report preview and emits save action', async () => {
+  it('renders a due diligence report preview without duplicate save actions', () => {
     const wrapper = mount(ReportPreview, {
       props: {
         model
@@ -40,8 +40,6 @@ describe('ReportPreview', () => {
     expect(wrapper.text()).toContain('该企业存在需要复核的风险关系。')
     expect(wrapper.text()).toContain('存在风险事件')
 
-    await wrapper.find('button').trigger('click')
-
-    expect(wrapper.emitted('save-report')).toEqual([[]])
+    expect(wrapper.find('button').exists()).toBe(false)
   })
 })

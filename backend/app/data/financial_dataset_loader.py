@@ -301,6 +301,8 @@ def load_financial_dataset_directory(path: str | Path) -> GraphPayload:
     edges: dict[str, GraphEdge] = {}
 
     for table_path in sorted(dataset_path.rglob("*")):
+        if table_path.name.startswith("~$"):
+            continue
         if table_path.suffix.lower() not in {".csv", ".xlsx", ".xls", ".json"}:
             continue
         graph = load_graph_payload_from_json(table_path) if table_path.suffix.lower() == ".json" else load_financial_table(table_path)

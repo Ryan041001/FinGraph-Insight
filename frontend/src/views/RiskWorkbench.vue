@@ -3,12 +3,13 @@
     <div class="page-header">
       <div>
         <h1>风险工作台</h1>
-        <p>输入企业名称，查看风险摘要、关联路径和证据链。</p>
+        <p>输入企业名称，自动汇总证据线索和 AI 研判。</p>
       </div>
       <CompanySearch
         v-model="keyword"
         :loading="loading"
         :active-query="activeRequestQuery"
+        :options="companyOptions"
         @search="loadCompany"
       />
     </div>
@@ -23,90 +24,213 @@
       正在分析关联风险...
     </div>
 
-    <div v-else-if="model" class="workbench-grid">
-      <aside class="workbench-left">
-        <CompanyProfilePanel :company="model.company" />
-        <button type="button" class="secondary" @click="addToWatchlist">加入关注</button>
-        <RiskSummaryPanel
-          :risk="model.risk"
-          :selected-relation-ids="highlightedRelationIds"
-          @select-factor="highlightRelations"
-        />
-      </aside>
-      <section class="panel workbench-main">
-        <div class="panel-title-row">
-          <div>
-            <span class="eyebrow">关联网络</span>
-            <h2>关系图谱</h2>
+    <div v-else-if="model" class="workbench-layout">
+      <section class="panel graph-workspace">
+        <div class="graph-workspace-header">
+          <div class="panel-title-row">
+            <div>
+              <span class="eyebrow">关联网络</span>
+              <h2>关系图谱</h2>
+            </div>
           </div>
         </div>
-        <RelationFilterBar
-          v-model:depth="depth"
-          :relation-types="relationTypes"
-          :selected-types="selectedRelationTypes"
-          @toggle-type="toggleRelationType"
-        />
-        <RiskGraphCanvas
-          :nodes="filteredNodes"
-          :edges="filteredEdges"
-          :highlighted-relation-ids="highlightedRelationIds"
-          @select-edge="selectEdge"
-        />
-        <div v-if="hasHighlightedRelations" class="selection-banner">
-          <span>已筛选 {{ highlightedRelationIds.length }} 条相关关系</span>
-          <button
-            type="button"
-            class="secondary"
-            data-testid="clear-relation-filter"
-            @click="clearHighlightedRelations"
-          >
-            清除筛选
-          </button>
+        <div class="graph-workspace-main">
+          <RelationFilterBar
+            v-model:depth="depth"
+            :relation-types="relationTypes"
+            :selected-types="selectedRelationTypes"
+            @toggle-type="toggleRelationType"
+          />
+          <RiskGraphCanvas
+            :nodes="filteredNodes"
+            :edges="filteredEdges"
+            :highlighted-relation-ids="highlightedRelationIds"
+            @select-edge="selectEdge"
+          />
+          <div v-if="hasHighlightedRelations" class="selection-banner">
+            <span>已筛选 {{ highlightedRelationIds.length }} 条相关关系</span>
+            <button
+              type="button"
+              class="secondary"
+              data-testid="clear-relation-filter"
+              @click="clearHighlightedRelations"
+            >
+              清除筛选
+            </button>
+          </div>
         </div>
-        <h3>关联路径</h3>
-        <div v-if="visiblePaths.length > 0" class="list path-list" data-testid="path-list">
-          <article
-            v-for="path in visiblePaths"
-            :key="path.id"
-            class="list-item path-row"
-            :class="{ 'selected-row': isRelationMatch(path.relationIds) }"
-            :data-risk="path.riskLevel"
-            data-testid="path-row"
-          >
-            <strong>{{ path.label }}</strong>
-            <p class="muted">风险标签：{{ riskLevelLabel(path.riskLevel) }} ｜ 相关证据 {{ evidenceCountForPath(path.relationIds) }} 条</p>
-          </article>
+        <aside class="graph-workspace-side" aria-label="搜索对象与快捷操作">
+          <CompanyProfilePanel :company="model.company" />
+          <section class="market-mini-module">
+            <span class="eyebrow">上市公司行情</span>
+            <h3>{{ listedStockCode ? 'K 线与事件' : '待识别股票代码' }}</h3>
+            <p>
+              {{ listedStockCode
+                ? '作为企业节点的补充视图，查看蜡烛图和证据线索增强研判。'
+                : '当前图谱节点没有股票代码，行情模块可继续查询浦发银行、招商银行等上市公司。'
+              }}
+            </p>
+            <a class="market-module-link" :href="marketInsightLink">
+              {{ listedStockCode ? '打开行情模块' : '查询上市公司行情' }}
+            </a>
+          </section>
+          <section class="quick-actions">
+            <span class="eyebrow">快捷操作</span>
+            <button type="button" class="secondary" @click="addToWatchlist">加入关注</button>
+            <button type="button" @click="saveCurrentReport">保存报告</button>
+          </section>
+        </aside>
+        <div class="graph-workspace-query">
+          <QueryWorkbenchPanel :company-name="model.company.name" />
         </div>
-        <p v-else class="muted">暂无可展示关系路径。</p>
+        <div class="graph-workspace-lower">
+          <section class="panel evidence-hub-panel graph-workspace-evidence-hub" data-testid="evidence-hub-panel">
+            <div class="panel-title-row">
+              <div>
+                <span class="eyebrow">自动研判</span>
+                <h2>证据线索研判</h2>
+              </div>
+              <div class="evidence-actions">
+                <span class="status" :class="evidenceStatus.tone" data-testid="evidence-status">
+                  {{ evidenceStatus.label }}
+                </span>
+                <button
+                  type="button"
+                  class="secondary"
+                  :disabled="evidenceLoading"
+                  @click="loadCompanyEvidence(true)"
+                >
+                  <Sparkles v-if="!evidenceLoading" :size="14" />
+                  <Loader2 v-else :size="14" class="spin" />
+                  {{ evidenceLoading ? '研判中' : '重新分析' }}
+                </button>
+              </div>
+            </div>
+            <p class="evidence-hub-copy">
+              自动汇总当前企业的证据线索，并生成 AI 研判；无需手动整理材料。
+            </p>
+            <div class="evidence-stat-row">
+              <article>
+                <span>证据线索</span>
+                <strong>{{ evidenceItemCount }}</strong>
+              </article>
+              <article>
+                <span>风险路径</span>
+                <strong>{{ visiblePaths.length }}</strong>
+              </article>
+              <article>
+                <span>研判置信度</span>
+                <strong>{{ analysisConfidenceLabel }}</strong>
+              </article>
+            </div>
+            <div v-if="evidenceLoading && !evidenceAnalysis" class="state-panel">
+              证据线索整理中，AI研判生成中...
+            </div>
+            <div v-else-if="evidenceError" class="state-panel error">
+              {{ evidenceError }}
+            </div>
+            <template v-else>
+              <article v-if="analysisSummary" class="analysis-brief-card">
+                <span class="eyebrow">{{ analysisBriefTitle }}</span>
+                <p>{{ analysisSummary }}</p>
+                <ul v-if="analysisHasMissingData">
+                  <li>部分信息暂未获取，已基于现有证据生成。</li>
+                </ul>
+              </article>
+              <div v-if="newsEvidenceItems.length > 0" class="news-evidence-list" data-testid="news-evidence-list">
+                <article v-for="item in newsEvidenceItems" :key="item.id" class="news-evidence-card">
+                  <div class="news-evidence-meta">
+                    <span class="source-pill">{{ item.sourceLabel }}</span>
+                    <time>{{ item.date }}</time>
+                    <span v-if="item.sentiment" class="sentiment-pill">{{ item.sentiment }}</span>
+                  </div>
+                  <strong>{{ item.title }}</strong>
+                  <p>{{ item.evidence }}</p>
+                  <a v-if="item.url" :href="item.url" target="_blank" rel="noreferrer">查看证据来源</a>
+                </article>
+              </div>
+              <p v-else class="muted">暂无可列出的证据线索。可点击“重新分析”补充研判。</p>
+            </template>
+          </section>
+          <RiskSummaryPanel
+            :risk="model.risk"
+            :selected-relation-ids="highlightedRelationIds"
+            @select-factor="highlightRelations"
+          />
+          <section class="workspace-subpanel graph-workspace-paths">
+            <div class="panel-title-row">
+              <div>
+                <span class="eyebrow">关联路径</span>
+                <h3>路径列表</h3>
+              </div>
+            </div>
+            <div v-if="displayedPaths.length > 0" class="list path-list" data-testid="path-list">
+              <article
+                v-for="path in displayedPaths"
+                :key="path.id"
+                class="list-item path-row"
+                :class="{ 'selected-row': isRelationMatch(path.relationIds) }"
+                :data-risk="path.riskLevel"
+                data-testid="path-row"
+              >
+                <strong>{{ path.label }}</strong>
+                <p class="muted">风险标签：{{ riskLevelLabel(path.riskLevel) }} ｜ 相关证据 {{ evidenceCountForPath(path.relationIds) }} 条</p>
+              </article>
+              <button
+                v-if="canTogglePathList"
+                type="button"
+                class="path-list-toggle"
+                data-testid="path-list-toggle"
+                @click="pathListExpanded = !pathListExpanded"
+              >
+                {{ pathListExpanded ? '收起路径列表' : `展开全部 ${visiblePaths.length} 条路径` }}
+              </button>
+            </div>
+            <p v-else class="muted">暂无可展示关系路径。</p>
+          </section>
+          <EvidenceDrawer :evidence="visibleEvidence" :selected-relation-id="selectedRelationId" />
+        </div>
       </section>
-      <aside class="workbench-right">
-        <EvidenceDrawer :evidence="visibleEvidence" :selected-relation-id="selectedRelationId" />
-        <AskPanel :company-name="model.company.name" />
-        <ReportPreview :model="model" @save-report="saveCurrentReport" />
-      </aside>
+      <div class="workbench-detail-grid">
+        <ReportPreview :model="model" />
+      </div>
+    </div>
+    <div v-else class="panel state-panel">
+      未查询到“{{ keyword }}”的可用证据线索。请检查企业名称后重试。
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
-import type { GraphEdge } from '../api/types'
-import AskPanel from '../components/AskPanel.vue'
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
+import { useRoute, type RouteLocationNormalizedLoaded } from 'vue-router'
+import { Loader2, Sparkles } from 'lucide-vue-next'
+import type { CompanySearchItem, GraphEdge, GraphNode, GraphPayload } from '../api/types'
 import CompanyProfilePanel from '../components/CompanyProfilePanel.vue'
 import CompanySearch from '../components/CompanySearch.vue'
 import EvidenceDrawer from '../components/EvidenceDrawer.vue'
 import RelationFilterBar from '../components/RelationFilterBar.vue'
 import ReportPreview from '../components/ReportPreview.vue'
+import QueryWorkbenchPanel from '../components/QueryWorkbenchPanel.vue'
 import RiskSummaryPanel from '../components/RiskSummaryPanel.vue'
-import { getCompanyProfile } from '../api/graph'
+import { analyzeStock, streamStockAnalysis } from '../api/analysis'
+import { getCompanyProfile, searchCompanies } from '../api/graph'
+import { importFinancialDataset } from '../api/runtime'
 import { buildRiskWorkbenchModel } from '../product/riskAdapter'
 import { saveReport, saveWatchlistItem } from '../product/storage'
 import type { RiskWorkbenchModel } from '../product/types'
 
-const DEFAULT_COMPANY_NAME = '浙江数科控股有限公司'
+const DEFAULT_COMPANY_NAME = '邦盛科技'
+const LAST_WORKBENCH_COMPANY_KEY = 'financial-risk-workbench-last-company'
 const RiskGraphCanvas = defineAsyncComponent(() => import('../components/RiskGraphCanvas.vue'))
+let route: RouteLocationNormalizedLoaded | null = null
+try {
+  route = useRoute()
+} catch {
+  route = null
+}
 
-const keyword = ref(DEFAULT_COMPANY_NAME)
+const keyword = ref(initialWorkbenchCompanyName())
 const loading = ref(false)
 const error = ref('')
 const model = ref<RiskWorkbenchModel | null>(null)
@@ -115,7 +239,18 @@ const activeRequestQuery = ref('')
 const depth = ref(2)
 const selectedRelationId = ref('')
 const selectedRelationTypes = ref<string[]>([])
+const evidenceLoading = ref(false)
+const evidenceError = ref('')
+const evidenceAnalysis = ref<Record<string, unknown> | null>(null)
+const evidenceRealtimeRequested = ref(false)
+const companyOptions = ref<CompanySearchItem[]>([
+  { id: 'company_0baf1af79a1c1f67', name: '邦盛科技', industry: '金融科技' },
+  { id: 'demo-guotou', name: '国投创业', industry: '投资机构' }
+])
 let requestSequence = 0
+let evidenceRequestSequence = 0
+let searchOptionTimer: number | undefined
+let datasetImportPromise: Promise<unknown> | null = null
 
 const highlightedRelationIdSet = computed(() => new Set(highlightedRelationIds.value))
 const hasHighlightedRelations = computed(() => highlightedRelationIds.value.length > 0)
@@ -191,6 +326,63 @@ const filteredEdges = computed(() => {
   return depthFilteredEdges.filter((edge) => selectedRelationTypes.value.includes(edge.label))
 })
 const filteredRelationIdSet = computed(() => new Set(filteredEdges.value.map((edge) => edge.id)))
+const evidenceAnalysisBlock = computed(() => asRecord(evidenceAnalysis.value?.analysis))
+const analysisSummary = computed(() => normalizeEvidenceCopy(stringField(evidenceAnalysisBlock.value.summary, '')))
+const analysisMissingData = computed(() => stringList(evidenceAnalysisBlock.value.missing_data))
+const analysisHasMissingData = computed(() => analysisMissingData.value.length > 0)
+const analysisBriefTitle = computed(() => {
+  if (analysisMissingData.value.some((item) => item.includes('模型研判暂不可用'))) {
+    return '证据研判摘要'
+  }
+  return 'AI 研判摘要'
+})
+const analysisConfidenceLabel = computed(() => {
+  const confidence = numberField(evidenceAnalysisBlock.value.confidence, 0)
+  return confidence > 0 ? `${Math.round(confidence * 100)}%` : '-'
+})
+const rawNewsEvents = computed(() => {
+  const events = evidenceAnalysis.value?.news_events
+  return Array.isArray(events) ? events : []
+})
+const newsEvidenceItems = computed(() => rawNewsEvents.value.map(toNewsEvidenceItem).filter((item) => item.title))
+const evidenceItemCount = computed(() => newsEvidenceItems.value.length)
+const pathListExpanded = ref(false)
+const pathListLimit = 5
+const displayedPaths = computed(() => pathListExpanded.value ? visiblePaths.value : visiblePaths.value.slice(0, pathListLimit))
+const canTogglePathList = computed(() => visiblePaths.value.length > pathListLimit)
+const evidenceStatus = computed(() => {
+  if (evidenceLoading.value) {
+    return { label: '证据线索研判中', tone: 'warning' }
+  }
+  if (evidenceError.value) {
+    return { label: '研判暂不可用', tone: 'danger' }
+  }
+  if (!evidenceAnalysis.value) {
+    return { label: '等待企业查询', tone: '' }
+  }
+  if (analysisMissingData.value.length > 0) {
+    return { label: '部分信息暂未获取', tone: 'warning' }
+  }
+  return { label: 'AI研判已完成', tone: 'success' }
+})
+const marketInsightLink = computed(() => {
+  const stockCode = listedStockCode.value
+  if (!stockCode) {
+    return '/market'
+  }
+
+  const params = new URLSearchParams({ company: model.value?.company.name ?? '', stock_code: stockCode })
+  return `/market?${params.toString()}`
+})
+const listedStockCode = computed(() => {
+  const companyName = model.value?.company.name ?? ''
+  const companyNode = model.value?.graph.nodes.find((node) => node.label === companyName || node.id === model.value?.company.id)
+  const stockCode = companyNode?.properties.stock_code
+    ?? companyNode?.properties.display_code
+    ?? knownMarketStockCode(companyName)
+
+  return typeof stockCode === 'string' ? stockCode.split('.')[0].trim() : ''
+})
 const visiblePaths = computed(() => {
   if (!model.value) {
     return []
@@ -226,9 +418,15 @@ async function loadCompany(value: string) {
   }
 
   const requestId = ++requestSequence
+  evidenceRequestSequence += 1
+  evidenceLoading.value = false
+  evidenceError.value = ''
+  evidenceAnalysis.value = null
+  evidenceRealtimeRequested.value = false
   highlightedRelationIds.value = []
   selectedRelationId.value = ''
   selectedRelationTypes.value = []
+  pathListExpanded.value = false
 
   if (!query) {
     activeRequestQuery.value = ''
@@ -238,15 +436,28 @@ async function loadCompany(value: string) {
   }
 
   activeRequestQuery.value = query
+  rememberLastWorkbenchCompany(query)
   loading.value = true
   error.value = ''
   try {
+    await ensureBaseDatasetImported()
+    if (requestId !== requestSequence) {
+      return
+    }
+
     const profile = await getCompanyProfile(query)
     if (requestId !== requestSequence) {
       return
     }
 
+    if (profile.found === false || (profile.graph.nodes.length === 0 && profile.graph.edges.length === 0)) {
+      model.value = buildTemporaryRiskWorkbenchModel(query)
+      void loadCompanyEvidence(true)
+      return
+    }
+
     model.value = buildRiskWorkbenchModel(profile)
+    void loadCompanyEvidence(true)
   } catch {
     if (requestId !== requestSequence) {
       return
@@ -260,6 +471,114 @@ async function loadCompany(value: string) {
     }
   }
 }
+
+function ensureBaseDatasetImported() {
+  if (!datasetImportPromise) {
+    datasetImportPromise = importFinancialDataset().catch(() => {
+      datasetImportPromise = null
+      return null
+    })
+  }
+
+  return datasetImportPromise
+}
+
+async function loadCompanyEvidence(useRealtimeAndLlm: boolean) {
+  if (!model.value) {
+    return
+  }
+
+  const requestId = ++evidenceRequestSequence
+  evidenceLoading.value = true
+  evidenceError.value = ''
+  evidenceRealtimeRequested.value = useRealtimeAndLlm
+  try {
+    const request = {
+      stockCode: listedStockCode.value,
+      companyName: model.value.company.name,
+      refreshNews: useRealtimeAndLlm,
+      useLlm: useRealtimeAndLlm
+    }
+    if (useRealtimeAndLlm) {
+      await streamStockAnalysis(request, {
+        onNewsEvent: (event) => {
+          if (requestId === evidenceRequestSequence) {
+            appendStreamedNewsEvent(event)
+          }
+        },
+        onSubgraph: (subgraph) => {
+          if (requestId === evidenceRequestSequence) {
+            mergeEvidenceAnalysisPatch({ subgraph })
+            mergeAnalysisSubgraphIntoCurrentModel({ subgraph })
+          }
+        },
+        onAnalysis: (analysis) => {
+          if (requestId === evidenceRequestSequence) {
+            mergeEvidenceAnalysisPatch({ analysis })
+          }
+        },
+        onDone: (result) => {
+          if (requestId !== evidenceRequestSequence) {
+            return
+          }
+          evidenceAnalysis.value = result
+          mergeAnalysisSubgraphIntoCurrentModel(result)
+        },
+        onError: (message) => {
+          if (requestId === evidenceRequestSequence) {
+            evidenceError.value = message
+          }
+        }
+      })
+      return
+    }
+
+    const result = await analyzeStock(request)
+    if (requestId !== evidenceRequestSequence) {
+      return
+    }
+    evidenceAnalysis.value = result
+    mergeAnalysisSubgraphIntoCurrentModel(result)
+  } catch {
+    if (requestId === evidenceRequestSequence) {
+      evidenceError.value = '证据线索研判暂不可用，请稍后重试；图谱、路径和证据链仍可继续查看。'
+    }
+  } finally {
+    if (requestId === evidenceRequestSequence) {
+      evidenceLoading.value = false
+    }
+  }
+}
+
+function appendStreamedNewsEvent(event: Record<string, unknown>) {
+  const current = evidenceAnalysis.value ?? {}
+  const currentEvents = Array.isArray(current.news_events) ? current.news_events : []
+  evidenceAnalysis.value = {
+    ...current,
+    news_events: [...currentEvents, event]
+  }
+}
+
+function mergeEvidenceAnalysisPatch(patch: Record<string, unknown>) {
+  evidenceAnalysis.value = {
+    ...(evidenceAnalysis.value ?? {}),
+    ...patch
+  }
+}
+
+watch(keyword, (value) => {
+  window.clearTimeout(searchOptionTimer)
+  searchOptionTimer = window.setTimeout(async () => {
+    try {
+      const result = await searchCompanies(value.trim(), 8)
+      if (result.companies.length > 0) {
+        companyOptions.value = result.companies
+      }
+    } catch {
+      // Keep the last useful suggestions; search is an enhancement, not a blocker.
+    }
+  }, 260)
+})
 
 function highlightRelations(relationIds: string[]) {
   selectedRelationId.value = ''
@@ -357,54 +676,610 @@ function createReportId(companyId: string) {
   return `${companyId}-${randomId}`
 }
 
+function buildTemporaryRiskWorkbenchModel(companyName: string): RiskWorkbenchModel {
+  return {
+    company: {
+      id: `temporary-${companyName}`,
+      name: companyName,
+      industry: '待补充',
+      legalRepresentative: '-',
+      tags: ['证据线索', 'AI 研判']
+    },
+    risk: {
+      level: 'unknown',
+      score: 0,
+      summary: `${companyName} 暂无足够图谱关系，已切换为证据线索与 AI 研判模式。`,
+      factors: []
+    },
+    graph: { nodes: [], edges: [] },
+    evidence: [],
+    paths: []
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+}
+
+function stringField(value: unknown, fallback = '-') {
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback
+}
+
+function numberField(value: unknown, fallback: number) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function stringList(value: unknown) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.map((item) => typeof item === 'string' ? item.trim() : '').filter(Boolean)
+}
+
+function toNewsEvidenceItem(value: unknown, index: number) {
+  const event = asRecord(value)
+  const url = stringField(event.source_url || event.url || event.news_url, '')
+  return {
+    id: `evidence-${stringField(event.title, 'event')}-${index}`,
+    title: normalizeEvidenceCopy(stringField(event.title || event.label, '')),
+    date: stringField(event.date, '未标注日期'),
+    evidence: normalizeEvidenceCopy(stringField(event.evidence || event.description, '暂无摘要或证据片段。')),
+    url,
+    sentiment: stringField(event.sentiment, ''),
+    sourceLabel: '证据线索'
+  }
+}
+
+function normalizeEvidenceCopy(value: string) {
+  return value
+    .replace(/实时新闻/g, '证据线索')
+    .replace(/最新消息/g, '证据线索')
+    .replace(/新闻/g, '证据')
+    .replace(/数据集事件/g, '证据线索')
+    .replace(/数据集记录/g, '证据记录')
+    .replace(/数据集/g, '证据库')
+    .replace(/本地图谱事件/g, '证据线索')
+    .replace(/图谱事件/g, '证据线索')
+}
+
+function mergeAnalysisSubgraphIntoCurrentModel(value: Record<string, unknown>) {
+  if (!model.value) {
+    return
+  }
+
+  const subgraph = graphPayloadFromUnknown(value.subgraph)
+  if (subgraph.nodes.length === 0 && subgraph.edges.length === 0) {
+    return
+  }
+
+  const nodesById = new Map(model.value.graph.nodes.map((node) => [node.id, node]))
+  const edgesById = new Map(model.value.graph.edges.map((edge) => [edge.id, edge]))
+  for (const node of subgraph.nodes) {
+    nodesById.set(node.id, node)
+  }
+  for (const edge of subgraph.edges) {
+    edgesById.set(edge.id, edge)
+  }
+
+  const currentCompany = model.value.company
+  const rebuiltModel = buildRiskWorkbenchModel({
+    company: {
+      id: currentCompany.id,
+      name: currentCompany.name,
+      industry: currentCompany.industry,
+      legal_representative: currentCompany.legalRepresentative
+    },
+    profile: {},
+    graph: {
+      nodes: Array.from(nodesById.values()),
+      edges: Array.from(edgesById.values())
+    }
+  })
+
+  model.value = {
+    ...rebuiltModel,
+    company: {
+      ...rebuiltModel.company,
+      id: currentCompany.id,
+      name: currentCompany.name
+    }
+  }
+}
+
+function graphPayloadFromUnknown(value: unknown): GraphPayload {
+  const record = asRecord(value)
+  const nodes = Array.isArray(record.nodes) ? record.nodes.filter(isGraphNode) : []
+  const edges = Array.isArray(record.edges) ? record.edges.filter(isGraphEdge) : []
+  return { nodes, edges }
+}
+
+function isGraphNode(value: unknown): value is GraphNode {
+  const node = asRecord(value)
+  return typeof node.id === 'string'
+    && typeof node.label === 'string'
+    && typeof node.type === 'string'
+    && typeof node.properties === 'object'
+    && node.properties !== null
+}
+
+function isGraphEdge(value: unknown): value is GraphEdge {
+  const edge = asRecord(value)
+  return typeof edge.id === 'string'
+    && typeof edge.source === 'string'
+    && typeof edge.target === 'string'
+    && typeof edge.type === 'string'
+    && typeof edge.label === 'string'
+}
+
+function knownMarketStockCode(companyName: string) {
+  const normalizedName = normalizeCompanyLookupName(companyName)
+  const compactName = stripCompanyLegalSuffix(normalizedName)
+  const knownStocks = [
+    { code: '600000', names: ['浦发银行', '上海浦东发展银行股份有限公司'] },
+    { code: '600036', names: ['招商银行', '招商银行股份有限公司'] },
+    { code: '000001', names: ['平安银行', '平安银行股份有限公司'] },
+    { code: '601318', names: ['中国平安', '中国平安保险（集团）股份有限公司', '中国平安保险(集团)股份有限公司'] },
+    { code: '600519', names: ['贵州茅台', '贵州茅台酒股份有限公司'] },
+    { code: '002594', names: ['比亚迪', '比亚迪股份有限公司'] }
+  ]
+
+  const match = knownStocks.find((stock) => stock.names.some((name) => {
+    const alias = normalizeCompanyLookupName(name)
+    const compactAlias = stripCompanyLegalSuffix(alias)
+
+    return normalizedName === alias || compactName === compactAlias
+  }))
+  return match?.code ?? ''
+}
+
+function initialWorkbenchCompanyName() {
+  const routeCompany = typeof route?.query.company === 'string' ? route.query.company.trim() : ''
+  if (routeCompany) {
+    return routeCompany
+  }
+
+  const storedCompany = localStorage.getItem(LAST_WORKBENCH_COMPANY_KEY)?.trim() ?? ''
+  return storedCompany || DEFAULT_COMPANY_NAME
+}
+
+function rememberLastWorkbenchCompany(companyName: string) {
+  const normalizedName = companyName.trim()
+  if (normalizedName) {
+    localStorage.setItem(LAST_WORKBENCH_COMPANY_KEY, normalizedName)
+  }
+}
+
+function normalizeCompanyLookupName(value: string) {
+  return value
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/（/g, '(')
+    .replace(/）/g, ')')
+}
+
+function stripCompanyLegalSuffix(value: string) {
+  const suffixes = [
+    '集团股份有限公司',
+    '股份有限公司',
+    '有限责任公司',
+    '集团有限公司',
+    '控股有限公司',
+    '有限公司'
+  ]
+
+  const suffix = suffixes.find((item) => value.endsWith(item))
+  return suffix ? value.slice(0, -suffix.length) : value
+}
+
 onMounted(() => {
+  const routeCompany = typeof route?.query.company === 'string' ? route.query.company : ''
+  if (routeCompany) {
+    keyword.value = routeCompany
+  }
   void loadCompany(keyword.value)
 })
 </script>
 
 <style scoped>
-.workbench-grid {
+.workbench-layout {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(280px, 360px);
-  gap: 18px;
+  grid-template-columns: 1fr;
+  gap: var(--space-lg);
   align-items: start;
 }
 
-.workbench-left {
+.graph-workspace {
   display: grid;
-  gap: 18px;
+  grid-template-columns: minmax(0, 3.2fr) minmax(280px, 0.9fr);
+  gap: var(--space-md);
+  align-items: start;
+  background:
+    linear-gradient(135deg, rgba(14, 165, 233, 0.06), rgba(245, 158, 11, 0.04)),
+    var(--panel);
+  box-shadow: var(--shadow-lg);
+  transition: box-shadow var(--transition-base) var(--ease-out);
 }
 
-.workbench-main,
-.workbench-right {
-  display: grid;
-  gap: 12px;
+.graph-workspace:hover {
+  box-shadow: var(--shadow-xl);
 }
 
-.workbench-main h3 {
-  margin: 8px 0 0;
+.graph-workspace-header {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.graph-workspace-main,
+.graph-workspace-side {
+  min-width: 0;
+}
+
+.graph-workspace-main {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.graph-workspace-main :deep(.risk-graph-canvas) {
+  min-height: clamp(560px, 50vh, 700px);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  transition: box-shadow var(--transition-base) var(--ease-out);
+}
+
+.graph-workspace-main :deep(.risk-graph-canvas:hover) {
+  box-shadow: var(--shadow-lg);
+}
+
+.graph-workspace-side {
+  display: grid;
+  grid-template-rows: auto auto minmax(140px, 1fr);
+  gap: var(--space-md);
+  align-self: stretch;
+}
+
+.graph-workspace-query {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.graph-workspace-lower {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.95fr) minmax(320px, 1.1fr) minmax(340px, 1.35fr);
+  gap: var(--space-md);
+  align-items: stretch;
+  padding-top: 0;
+}
+
+.graph-workspace-lower :deep(.panel),
+.workspace-subpanel {
+  min-width: 0;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-fast) var(--ease-out),
+              box-shadow var(--transition-base) var(--ease-out);
+}
+
+.graph-workspace-lower :deep(.panel):hover,
+.workspace-subpanel:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.workspace-subpanel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--space-md);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(241, 247, 252, 0.84));
+  padding: var(--space-lg);
+}
+
+.graph-workspace-lower :deep(.panel),
+.workspace-subpanel {
+  height: 100%;
+}
+
+.graph-workspace-paths,
+.graph-workspace-lower :deep(.evidence-drawer) {
+  height: 520px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.graph-workspace-paths .path-list {
+  align-content: start;
+  min-height: 0;
+  overflow: auto;
+  padding-right: var(--space-xs);
+}
+
+.quick-actions {
+  display: grid;
+  gap: var(--space-sm);
+  align-content: start;
+  border: 1px solid rgba(183, 121, 31, 0.18);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(255, 251, 235, 0.88), rgba(236, 253, 245, 0.7)),
+    var(--panel-soft);
+  padding: var(--space-md);
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow var(--transition-base) var(--ease-out);
+}
+
+.quick-actions:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+.market-mini-module {
+  display: grid;
+  gap: var(--space-sm);
+  border: 1px solid rgba(14, 143, 179, 0.18);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(145deg, rgba(14, 165, 233, 0.10), rgba(236, 253, 245, 0.72)),
+    var(--panel-soft);
+  padding: var(--space-md);
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow var(--transition-base) var(--ease-out);
+}
+
+.market-mini-module:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+.market-mini-module h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 16px;
+}
+
+.market-mini-module p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.market-module-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  border: 1px solid rgba(14, 143, 179, 0.28);
+  border-radius: 8px;
+  color: #075985;
+  background: rgba(255, 255, 255, 0.82);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 700;
+  transition: all 160ms ease;
+}
+
+.market-module-link:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+  border-color: var(--accent);
+}
+
+.workbench-detail-grid {
+  display: grid;
+  gap: var(--space-lg);
+  align-items: start;
+}
+
+.evidence-hub-panel {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.graph-workspace-evidence-hub {
+  grid-column: 1 / -1;
+}
+
+.evidence-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.evidence-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.evidence-hub-copy {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+  font-size: 14px;
+}
+
+.evidence-stat-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.evidence-stat-row article {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(241, 247, 252, 0.84));
+  padding: var(--space-md);
+  box-shadow: var(--shadow-xs);
+  transition: transform var(--transition-fast) var(--ease-out),
+              box-shadow var(--transition-base) var(--ease-out);
+}
+
+.evidence-stat-row article:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.evidence-stat-row span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.evidence-stat-row strong {
+  display: block;
+  margin-top: var(--space-xs);
+  color: #0f172a;
+  font-size: 22px;
+}
+
+.analysis-brief-card {
+  border: 1px solid rgba(14, 143, 179, 0.18);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(145deg, rgba(14, 165, 233, 0.09), rgba(236, 253, 245, 0.62)),
+    #ffffff;
+  padding: var(--space-md);
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow var(--transition-base) var(--ease-out);
+}
+
+.analysis-brief-card:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+.analysis-brief-card p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.65;
+}
+
+.analysis-brief-card ul {
+  margin: var(--space-md) 0 0;
+  padding-left: var(--space-lg);
+  color: #92400e;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.news-evidence-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.news-evidence-card {
+  display: grid;
+  gap: var(--space-sm);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.9));
+  padding: var(--space-md);
+  min-width: 0;
+  box-shadow: var(--shadow-xs);
+  transition: transform var(--transition-fast) var(--ease-out),
+              box-shadow var(--transition-base) var(--ease-out),
+              border-color var(--transition-fast) var(--ease-out);
+}
+
+.news-evidence-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--accent);
+}
+
+.news-evidence-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.source-pill,
+.sentiment-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px var(--space-sm);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.source-pill {
+  background: rgba(14, 165, 233, 0.1);
+  color: #0369a1;
+}
+
+.sentiment-pill {
+  background: rgba(148, 163, 184, 0.15);
+  color: #475569;
+}
+
+.news-evidence-card strong {
+  color: #0f172a;
+  line-height: 1.45;
+}
+
+.news-evidence-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.news-evidence-card a {
+  color: #0e7490;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: color var(--transition-fast) var(--ease-out);
+}
+
+.news-evidence-card a:hover {
+  text-decoration: underline;
+  color: var(--accent);
+}
+
+.workbench-detail-grid :deep(.query-workbench),
+.workbench-detail-grid :deep(.report-preview) {
+  grid-column: auto;
+}
+
+.graph-workspace h3 {
+  margin: 0;
 }
 
 .selection-banner {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  border: 1px solid #99f6e4;
-  border-radius: 8px;
-  background: #f0fdfa;
-  color: #115e59;
-  padding: 10px 12px;
+  gap: var(--space-md);
+  border: 1px solid rgba(14, 143, 179, 0.26);
+  border-radius: var(--radius-lg);
+  background: rgba(14, 165, 233, 0.10);
+  color: #075985;
+  padding: var(--space-sm) var(--space-md);
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow var(--transition-base) var(--ease-out);
+}
+
+.selection-banner:hover {
+  box-shadow: var(--shadow-sm);
 }
 
 .path-row,
 .evidence-row {
   border-left: 4px solid transparent;
+  transition: border-color var(--transition-fast) var(--ease-out),
+              background-color var(--transition-fast) var(--ease-out);
 }
 
 .selected-row {
   border-left-color: var(--accent);
-  background: #f0fdfa;
+  background: rgba(14, 165, 233, 0.10);
 }
 
 .path-row[data-risk="high"] strong {
@@ -415,9 +1290,50 @@ onMounted(() => {
   color: var(--accent-2);
 }
 
+.path-list-toggle {
+  justify-self: start;
+  min-height: auto;
+  border: 0;
+  background: transparent;
+  color: #0e7490;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 700;
+  transition: color var(--transition-fast) var(--ease-out);
+}
+
+.path-list-toggle:hover {
+  text-decoration: underline;
+  color: var(--accent);
+}
+
 @media (max-width: 1100px) {
-  .workbench-grid {
+  .workbench-layout,
+  .graph-workspace,
+  .graph-workspace-lower,
+  .workbench-detail-grid,
+  .evidence-stat-row,
+  .news-evidence-list {
     grid-template-columns: 1fr;
   }
+
+  .workbench-detail-grid :deep(.query-workbench),
+  .workbench-detail-grid :deep(.report-preview) {
+    grid-column: span 1;
+  }
+
+  .graph-workspace-paths,
+  .graph-workspace-lower :deep(.evidence-drawer) {
+    height: min(520px, 72vh);
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

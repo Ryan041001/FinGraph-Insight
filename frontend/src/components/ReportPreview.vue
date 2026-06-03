@@ -9,7 +9,6 @@
         <p>{{ factor.description }}</p>
       </article>
     </div>
-    <button type="button" @click="$emit('save-report')">保存研判报告</button>
   </section>
 </template>
 
@@ -18,10 +17,6 @@ import type { RiskWorkbenchModel } from '../product/types'
 
 defineProps<{
   model: RiskWorkbenchModel
-}>()
-
-defineEmits<{
-  'save-report': []
 }>()
 </script>
 

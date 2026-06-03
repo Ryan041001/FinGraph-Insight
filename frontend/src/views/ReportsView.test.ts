@@ -51,4 +51,16 @@ describe('ReportsView', () => {
     expect(wrapper.find('.report-detail').text()).toContain('杭州风控科技有限公司 风险研判摘要。')
     expect(wrapper.find('.report-detail').text()).toContain('杭州风控科技有限公司 相关公开证据。')
   })
+
+  it('deletes the selected report and selects the next available report', async () => {
+    saveReportFixture('old-report', '杭州风控科技有限公司', '2026-05-26T00:00:00.000Z')
+    saveReportFixture('risk-report', '浙江数科控股有限公司', '2026-05-27T00:00:00.000Z')
+
+    const wrapper = mount(ReportsView)
+
+    await wrapper.find('button.danger').trigger('click')
+
+    expect(wrapper.text()).not.toContain('浙江数科控股有限公司 风险研判摘要。')
+    expect(wrapper.find('.report-detail').text()).toContain('杭州风控科技有限公司 风险研判摘要。')
+  })
 })

@@ -54,7 +54,11 @@ reports/*
 # Tooling local state
 .omc/
 .superpowers/
+.codex/
+.codex-run/
 .cache/
+.claude/worktrees/
+.playwright-mcp/
 
 # Logs and temporary files
 *.log

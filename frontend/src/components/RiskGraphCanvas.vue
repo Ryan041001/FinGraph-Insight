@@ -42,9 +42,9 @@ function nodeTypeLabel(node: GraphNode): string {
 
 function nodeColor(node: GraphNode): string {
   if (node.risk_level === 'high') return '#b91c1c'
-  if (node.type === 'Company') return '#0f766e'
-  if (node.type === 'Institution') return '#b45309'
-  if (node.type === 'Event') return '#2563eb'
+  if (node.type === 'Company') return '#2563eb'
+  if (node.type === 'Institution') return '#8b5cf6'
+  if (node.type === 'Event') return '#f59e0b'
   return '#64748b'
 }
 
@@ -66,7 +66,7 @@ function renderChart() {
     series: [{
       type: 'graph',
       layout: 'force',
-      roam: true,
+      roam: 'scale',
       categories: categories.value,
       force: { repulsion: 260, edgeLength: 118 },
       label: {
@@ -83,6 +83,7 @@ function renderChart() {
         id: node.id,
         name: node.label,
         category: categories.value.findIndex((item) => item.name === nodeTypeLabel(node)),
+        draggable: true,
         itemStyle: { color: nodeColor(node) },
         symbolSize: node.type === 'Company' ? 62 : 46
       })),
@@ -149,12 +150,28 @@ onBeforeUnmount(() => {
 .risk-graph-canvas {
   min-height: 520px;
   width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background:
-    linear-gradient(90deg, rgba(15, 118, 110, 0.06) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(15, 118, 110, 0.06) 1px, transparent 1px),
-    #ffffff;
-  background-size: 40px 40px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, #f8fbff, #f0f9ff 50%, #fefce8 100%);
+  box-shadow: var(--shadow);
+  transition: all var(--transition-base) var(--ease-out);
+  position: relative;
+  overflow: hidden;
+}
+
+.risk-graph-canvas::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #0ea5e9, #6366f1, #8b5cf6);
+  opacity: 0.5;
+}
+
+.risk-graph-canvas:hover {
+  box-shadow: var(--shadow-lg);
+  border-color: var(--line-strong);
 }
 </style>

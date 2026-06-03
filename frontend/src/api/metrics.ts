@@ -1,5 +1,6 @@
 import { apiGet } from './client'
+import type { ExtractionMetrics } from './types'
 
 export function getExtractionMetrics() {
-  return apiGet<Record<string, number>>('/metrics/extraction')
+  return apiGet<ExtractionMetrics>('/metrics/extraction')
 }

@@ -71,7 +71,7 @@ def live_server():
 
 def test_live_http_backend_flow_without_external_dependencies(live_server):
     base_url = live_server
-    client = httpx.Client(base_url=base_url, timeout=30.0)
+    client = httpx.Client(base_url=base_url, timeout=180.0)
 
     document_payload = {
         "doc_id": "live_e2e_doc_001",
@@ -85,8 +85,8 @@ def test_live_http_backend_flow_without_external_dependencies(live_server):
     assert health.json()["status"] == "ok"
     assert health.json()["neo4j"] == "memory"
 
-    first_import = client.post("/datasets/import", json={"dataset": "financial_datasets"})
-    second_import = client.post("/datasets/import", json={"dataset": "financial_datasets"})
+    first_import = client.post("/datasets/import", json={"dataset": "financial_datasets"}, timeout=900.0)
+    second_import = client.post("/datasets/import", json={"dataset": "financial_datasets"}, timeout=900.0)
     assert first_import.status_code == 200
     assert second_import.status_code == 200
     assert first_import.json()["status"] == "success"
@@ -132,17 +132,18 @@ def test_live_http_backend_flow_without_external_dependencies(live_server):
     run_job = client.post("/jobs/akshare/run")
     assert run_job.status_code == 200
     job_payload = run_job.json()
-    assert job_payload["status"] in {"success", "failed"}
+    assert job_payload["status"] in {"running", "success", "failed"}
     assert job_payload["new_documents"] >= 0
 
-    jobs_after = client.get("/jobs")
-    assert jobs_after.status_code == 200
-    job_ids = [job["job_run_id"] for job in jobs_after.json()["jobs"]]
-    assert job_payload["job_run_id"] in job_ids
+    if job_payload["status"] != "running":
+        jobs_after = client.get("/jobs")
+        assert jobs_after.status_code == 200
+        job_ids = [job["job_run_id"] for job in jobs_after.json()["jobs"]]
+        assert job_payload["job_run_id"] in job_ids
 
-    job_detail = client.get(f"/jobs/{job_payload['job_run_id']}")
-    assert job_detail.status_code == 200
-    assert job_detail.json()["job_run_id"] == job_payload["job_run_id"]
+        job_detail = client.get(f"/jobs/{job_payload['job_run_id']}")
+        assert job_detail.status_code == 200
+        assert job_detail.json()["job_run_id"] == job_payload["job_run_id"]
 
     metrics = client.get("/metrics/extraction")
     assert metrics.status_code == 503

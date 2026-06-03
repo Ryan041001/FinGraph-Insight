@@ -14,9 +14,9 @@ class Neo4jGraphReader:
 
     def company_profile(self, name: str, depth: int = 2) -> dict[str, Any]:
         graph = self.subgraph(name, depth=depth)
-        company = next((node for node in graph.nodes if node.type == "Company" and node.label == name), None)
+        company = _matching_company(graph, name)
         if company is None:
-            company = next((node for node in graph.nodes if node.type == "Company"), None)
+            graph = GraphPayload(nodes=[], edges=[])
         properties = company.properties if company else {}
         return {
             "company": {
@@ -44,7 +44,13 @@ class Neo4jGraphReader:
         bounded_depth = max(1, min(depth, 3))
         bounded_limit = max(1, min(limit, 500))
         query = f"""
-MATCH path=(start {{name: $entity}})-[*0..{bounded_depth}]-(neighbor)
+MATCH (start)
+WHERE start.name = $entity OR start.label = $entity
+   OR start.name CONTAINS $entity OR start.label CONTAINS $entity
+WITH start
+ORDER BY CASE WHEN start.name = $entity OR start.label = $entity THEN 0 ELSE 1 END
+LIMIT 1
+MATCH path=(start)-[*0..{bounded_depth}]-(neighbor)
 WITH collect(path)[0..$limit] AS paths
 RETURN paths AS paths
 """.strip()
@@ -68,6 +74,23 @@ LIMIT 10
     def _run(self, query: str, parameters: dict[str, Any]) -> list[dict[str, Any]]:
         with self._driver.session() as session:
             return [dict(record.items()) for record in session.run(query, parameters)]
+
+
+def _matching_company(graph: GraphPayload, name: str) -> GraphNode | None:
+    normalized = name.strip().lower()
+    if not normalized:
+        return None
+
+    companies = [node for node in graph.nodes if node.type == "Company"]
+    for node in companies:
+        if node.label.strip().lower() == normalized:
+            return node
+    for node in companies:
+        label = node.label.strip().lower()
+        property_name = str(node.properties.get("name") or "").strip().lower()
+        if normalized in label or normalized in property_name:
+            return node
+    return None
 
 
 def execute_readonly_cypher(driver: Any, cypher: str) -> dict[str, Any]:

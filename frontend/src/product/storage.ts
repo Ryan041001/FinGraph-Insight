@@ -103,3 +103,7 @@ export function saveReport(report: DueDiligenceReport) {
   const reports = loadReports().filter((entry) => entry.id !== report.id)
   writeJson(REPORTS_KEY, [report, ...reports].sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
 }
+
+export function removeReport(reportId: string) {
+  writeJson(REPORTS_KEY, loadReports().filter((entry) => entry.id !== reportId))
+}

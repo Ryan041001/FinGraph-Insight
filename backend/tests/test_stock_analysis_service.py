@@ -60,6 +60,7 @@ def test_build_stock_analysis_binds_graph_evidence_and_disclaimer():
 
 
 def test_build_stock_analysis_can_refresh_news_with_llm_gateway():
+    graph_store.clear()
     response = build_stock_analysis(
         {
             "stock_code": "600000",
@@ -71,6 +72,27 @@ def test_build_stock_analysis_can_refresh_news_with_llm_gateway():
 
     assert response["news_events"][0]["title"] == "涉及诉讼"
     assert response["news_events"][0]["source_url"] == "https://example.com"
+
+
+def test_build_stock_analysis_merges_refreshed_news_into_runtime_graph():
+    graph_store.clear()
+
+    response = build_stock_analysis(
+        {
+            "stock_code": "",
+            "company_name": "浦发银行",
+            "refresh_news": True,
+        },
+        news_gateway=FakeGateway(),
+    )
+
+    edge_types = {edge["type"] for edge in response["subgraph"]["edges"]}
+    labels = {node["label"] for node in response["subgraph"]["nodes"]}
+
+    assert "浦发银行" in labels
+    assert "涉及诉讼" in labels
+    assert "MENTIONED_IN" in edge_types
+    assert graph_store.subgraph("浦发银行").edges
 
 
 def test_build_stock_analysis_with_llm_overrides_analysis_block():

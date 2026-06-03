@@ -45,3 +45,12 @@ def _block_company_enrichment_network(request, monkeypatch):
     company_enrichment_service.reset_enrichment_cache()
     yield
     company_enrichment_service.reset_enrichment_cache()
+
+
+@pytest.fixture(autouse=True)
+def _reset_news_event_cache():
+    from app.services.news_service import reset_news_event_cache
+
+    reset_news_event_cache()
+    yield
+    reset_news_event_cache()
