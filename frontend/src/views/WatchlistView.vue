@@ -90,13 +90,20 @@ function riskLabel(level: RiskLevel): string {
 .header-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   background: linear-gradient(135deg, rgba(14, 165, 233, 0.1), rgba(99, 102, 241, 0.08));
   color: #0369a1;
-  padding: 8px 16px;
-  border-radius: 999px;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-xl);
   font-size: 14px;
   font-weight: 600;
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
+}
+
+.header-badge:hover {
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
 }
 
 .empty-state {
@@ -104,8 +111,8 @@ function riskLabel(level: RiskLevel): string {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 60px 24px;
+  gap: var(--space-md);
+  padding: var(--space-2xl) var(--space-xl);
   text-align: center;
   color: var(--muted);
 }
@@ -123,23 +130,24 @@ function riskLabel(level: RiskLevel): string {
 
 .empty-icon {
   color: #cbd5e1;
+  opacity: 0.6;
 }
 
 .watchlist-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 18px;
+  gap: var(--space-lg);
 }
 
 .watchlist-card {
   background: var(--panel-strong);
-  border: 1px solid var(--line);
+  border: 1.5px solid var(--line);
   border-radius: var(--radius-lg);
-  padding: 22px;
-  box-shadow: var(--shadow);
-  transition: all 200ms ease;
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition-base) var(--ease-out);
   display: grid;
-  gap: 10px;
+  gap: var(--space-sm);
   position: relative;
   overflow: hidden;
 }
@@ -152,18 +160,22 @@ function riskLabel(level: RiskLevel): string {
   width: 4px;
   height: 100%;
   background: #cbd5e1;
+  transition: all var(--transition-base) var(--ease-out);
 }
 
 .watchlist-card[data-risk="high"]::before {
   background: linear-gradient(180deg, #ef4444, #dc2626);
+  box-shadow: 2px 0 8px rgba(239, 68, 68, 0.3);
 }
 
 .watchlist-card[data-risk="medium"]::before {
   background: linear-gradient(180deg, #f59e0b, #d97706);
+  box-shadow: 2px 0 8px rgba(245, 158, 11, 0.3);
 }
 
 .watchlist-card[data-risk="low"]::before {
   background: linear-gradient(180deg, #10b981, #059669);
+  box-shadow: 2px 0 8px rgba(16, 185, 129, 0.3);
 }
 
 .watchlist-card[data-risk="unknown"]::before {
@@ -171,27 +183,33 @@ function riskLabel(level: RiskLevel): string {
 }
 
 .watchlist-card:hover {
-  box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
+  box-shadow: var(--shadow-xl);
+  transform: translateY(-3px);
+  border-color: var(--line-strong);
 }
 
 .watchlist-card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-sm);
 }
 
 .company-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
   min-width: 0;
 }
 
 .company-info svg {
   color: var(--accent);
   flex-shrink: 0;
+  transition: transform var(--transition-base) var(--ease-out);
+}
+
+.watchlist-card:hover .company-info svg {
+  transform: scale(1.15);
 }
 
 .company-info strong {
@@ -205,32 +223,42 @@ function riskLabel(level: RiskLevel): string {
 .risk-badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  border-radius: 999px;
-  padding: 5px 10px;
+  gap: var(--space-xs);
+  border-radius: var(--radius-xl);
+  padding: var(--space-xs) var(--space-sm);
   font-size: 12px;
   font-weight: 700;
   flex-shrink: 0;
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-fast) var(--ease-out);
+}
+
+.risk-badge:hover {
+  transform: scale(1.05);
 }
 
 .risk-high {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(239, 68, 68, 0.12);
   color: #b91c1c;
+  border: 1px solid rgba(239, 68, 68, 0.2);
 }
 
 .risk-medium {
-  background: rgba(245, 158, 11, 0.1);
+  background: rgba(245, 158, 11, 0.12);
   color: #b45309;
+  border: 1px solid rgba(245, 158, 11, 0.2);
 }
 
 .risk-low {
-  background: rgba(16, 185, 129, 0.1);
+  background: rgba(16, 185, 129, 0.12);
   color: #047857;
+  border: 1px solid rgba(16, 185, 129, 0.2);
 }
 
 .risk-unknown {
   background: rgba(148, 163, 184, 0.15);
   color: #475569;
+  border: 1px solid rgba(148, 163, 184, 0.2);
 }
 
 .industry {
@@ -252,35 +280,45 @@ function riskLabel(level: RiskLevel): string {
 
 .watchlist-actions {
   display: flex;
-  gap: 10px;
-  margin-top: 6px;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
 }
 
 .action-link {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
   border-radius: var(--radius-sm);
   background: linear-gradient(135deg, rgba(14, 165, 233, 0.08), rgba(99, 102, 241, 0.06));
   color: #0369a1;
   text-decoration: none;
   font-size: 13px;
   font-weight: 600;
-  transition: all 150ms ease;
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
 }
 
 .action-link:hover {
   background: linear-gradient(135deg, rgba(14, 165, 233, 0.15), rgba(99, 102, 241, 0.1));
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
 }
 
 .remove-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
   min-height: auto;
   font-size: 13px;
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
+}
+
+.remove-btn:hover {
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
 }
 
 @media (max-width: 720px) {

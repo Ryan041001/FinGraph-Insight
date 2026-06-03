@@ -196,14 +196,14 @@ function confidenceText(value: number | undefined) {
 .lab-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  gap: var(--space-xl);
   align-items: stretch;
 }
 
 .input-panel,
 .result-panel {
   display: grid;
-  gap: 14px;
+  gap: var(--space-md);
   align-content: start;
 }
 
@@ -214,22 +214,39 @@ function confidenceText(value: number | undefined) {
 
 .input-panel textarea {
   min-height: 360px;
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
+}
+
+.input-panel textarea:hover {
+  box-shadow: var(--shadow-sm);
+  border-color: var(--line-strong);
+}
+
+.input-panel textarea:focus {
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15), var(--shadow-sm);
+  border-color: var(--accent);
 }
 
 .switch-row {
   display: flex;
-  gap: 20px;
+  gap: var(--space-xl);
   align-items: center;
 }
 
 .switch-label {
   display: inline-flex;
-  gap: 10px;
+  gap: var(--space-sm);
   align-items: center;
   color: #475569;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
+  transition: color var(--transition-base) var(--ease-out);
+}
+
+.switch-label:hover {
+  color: #0f172a;
 }
 
 .switch-label input {
@@ -240,11 +257,12 @@ function confidenceText(value: number | undefined) {
 .switch-box {
   width: 36px;
   height: 20px;
-  border-radius: 999px;
+  border-radius: var(--radius-xl);
   background: #cbd5e1;
   position: relative;
-  transition: background 200ms ease;
+  transition: all var(--transition-base) var(--ease-out);
   flex-shrink: 0;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .switch-box::after {
@@ -256,12 +274,13 @@ function confidenceText(value: number | undefined) {
   height: 16px;
   border-radius: 50%;
   background: #ffffff;
-  transition: transform 200ms ease;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  transition: all var(--transition-base) var(--ease-out);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .switch-label input:checked + .switch-box {
   background: linear-gradient(135deg, #0ea5e9, #6366f1);
+  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2), inset 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .switch-label input:checked + .switch-box::after {
@@ -271,12 +290,19 @@ function confidenceText(value: number | undefined) {
 .hint {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
   border-radius: var(--radius-sm);
-  background: linear-gradient(145deg, rgba(255, 251, 235, 0.6), rgba(254, 249, 195, 0.3));
+  background: linear-gradient(145deg, rgba(255, 251, 235, 0.7), rgba(254, 249, 195, 0.4));
   border: 1px dashed var(--line);
   font-size: 13px;
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
+}
+
+.hint:hover {
+  background: linear-gradient(145deg, rgba(255, 251, 235, 0.85), rgba(254, 249, 195, 0.55);
+  box-shadow: var(--shadow-sm);
 }
 
 .hint svg {
@@ -288,14 +314,15 @@ function confidenceText(value: number | undefined) {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 50px 24px;
+  gap: var(--space-sm);
+  padding: var(--space-2xl) var(--space-xl);
   text-align: center;
   color: var(--muted);
 }
 
 .empty-state svg {
   color: #cbd5e1;
+  opacity: 0.6;
 }
 
 .empty-state p {
@@ -311,13 +338,13 @@ function confidenceText(value: number | undefined) {
 
 .result-section {
   display: grid;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .section-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   margin: 0;
   font-size: 15px;
   color: #334155;
@@ -333,39 +360,42 @@ function confidenceText(value: number | undefined) {
   justify-content: center;
   min-width: 24px;
   height: 20px;
-  border-radius: 999px;
+  border-radius: var(--radius-xl);
   background: linear-gradient(135deg, #0ea5e9, #6366f1);
   color: #ffffff;
   font-size: 11px;
   font-weight: 700;
   padding: 0 7px;
+  box-shadow: 0 2px 6px rgba(14, 165, 233, 0.3);
 }
 
 .entity-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .entity-card {
-  border: 1px solid var(--line);
+  border: 1.5px solid var(--line);
   border-radius: var(--radius-sm);
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.9));
-  padding: 14px;
-  transition: all 180ms ease;
+  padding: var(--space-md);
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
 }
 
 .entity-card:hover {
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
   border-color: var(--line-strong);
+  transform: translateY(-1px);
 }
 
 .entity-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
 }
 
 .entity-header strong {
@@ -376,13 +406,14 @@ function confidenceText(value: number | undefined) {
 .type-badge {
   display: inline-flex;
   align-items: center;
-  padding: 3px 8px;
-  border-radius: 999px;
+  padding: 3px var(--space-sm);
+  border-radius: var(--radius-xl);
   background: linear-gradient(135deg, rgba(14, 165, 233, 0.1), rgba(99, 102, 241, 0.08));
   color: #0369a1;
   font-size: 11px;
   font-weight: 700;
   flex-shrink: 0;
+  box-shadow: var(--shadow-xs);
 }
 
 .entity-card p {
@@ -394,15 +425,16 @@ function confidenceText(value: number | undefined) {
 
 .relation-list {
   display: grid;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .relation-card {
-  border: 1px solid var(--line);
+  border: 1.5px solid var(--line);
   border-radius: var(--radius-sm);
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.9));
-  padding: 14px;
-  transition: all 180ms ease;
+  padding: var(--space-md);
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
   position: relative;
   overflow: hidden;
 }
@@ -415,30 +447,35 @@ function confidenceText(value: number | undefined) {
   width: 3px;
   height: 100%;
   background: #cbd5e1;
+  transition: all var(--transition-base) var(--ease-out);
 }
 
 .relation-card[data-status="approved"]::before {
   background: linear-gradient(180deg, #10b981, #059669);
+  box-shadow: 2px 0 8px rgba(16, 185, 129, 0.3);
 }
 
 .relation-card[data-status="rejected"]::before {
   background: linear-gradient(180deg, #ef4444, #dc2626);
+  box-shadow: 2px 0 8px rgba(239, 68, 68, 0.3);
 }
 
 .relation-card[data-status="pending"]::before {
   background: linear-gradient(180deg, #f59e0b, #d97706);
+  box-shadow: 2px 0 8px rgba(245, 158, 11, 0.3);
 }
 
 .relation-card:hover {
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .relation-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 6px;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
 }
 
 .relation-header strong {
@@ -448,7 +485,7 @@ function confidenceText(value: number | undefined) {
 
 .relation-meta {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   align-items: center;
   flex-shrink: 0;
 }
@@ -456,23 +493,25 @@ function confidenceText(value: number | undefined) {
 .confidence-tag {
   display: inline-flex;
   align-items: center;
-  padding: 3px 8px;
-  border-radius: 999px;
+  padding: 3px var(--space-sm);
+  border-radius: var(--radius-xl);
   background: rgba(14, 165, 233, 0.1);
   color: #0369a1;
   font-size: 11px;
   font-weight: 700;
+  box-shadow: var(--shadow-xs);
 }
 
 .status-tag {
   display: inline-flex;
   align-items: center;
-  padding: 3px 8px;
-  border-radius: 999px;
+  padding: 3px var(--space-sm);
+  border-radius: var(--radius-xl);
   background: rgba(148, 163, 184, 0.15);
   color: #475569;
   font-size: 11px;
   font-weight: 700;
+  box-shadow: var(--shadow-xs);
 }
 
 .relation-card p {
@@ -484,10 +523,23 @@ function confidenceText(value: number | undefined) {
 
 .import-success {
   display: flex;
-  gap: 14px;
+  gap: var(--space-md);
   align-items: center;
   border-color: rgba(16, 185, 129, 0.3);
-  background: linear-gradient(145deg, rgba(236, 253, 245, 0.8), rgba(209, 250, 229, 0.5));
+  background: linear-gradient(145deg, rgba(236, 253, 245, 0.85), rgba(209, 250, 229, 0.6));
+  box-shadow: var(--shadow-sm);
+  animation: slideDown var(--transition-slow) var(--ease-out);
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .import-success strong {
@@ -509,7 +561,18 @@ function confidenceText(value: number | undefined) {
 button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-xs);
+  transition: all var(--transition-base) var(--ease-out);
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: var(--shadow-xs);
 }
 
 .spin {

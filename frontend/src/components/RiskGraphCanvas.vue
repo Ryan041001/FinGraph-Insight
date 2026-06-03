@@ -150,8 +150,28 @@ onBeforeUnmount(() => {
 .risk-graph-canvas {
   min-height: 520px;
   width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #f8fbff;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, #f8fbff, #f0f9ff 50%, #fefce8 100%);
+  box-shadow: var(--shadow);
+  transition: all var(--transition-base) var(--ease-out);
+  position: relative;
+  overflow: hidden;
+}
+
+.risk-graph-canvas::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #0ea5e9, #6366f1, #8b5cf6);
+  opacity: 0.5;
+}
+
+.risk-graph-canvas:hover {
+  box-shadow: var(--shadow-lg);
+  border-color: var(--line-strong);
 }
 </style>

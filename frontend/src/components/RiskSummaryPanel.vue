@@ -97,7 +97,7 @@ function selectFactor(relationIds: string[]) {
 <style scoped>
 .risk-summary-panel {
   display: grid;
-  gap: 14px;
+  gap: var(--space-md);
   align-content: start;
   position: relative;
   overflow: hidden;
@@ -111,18 +111,22 @@ function selectFactor(relationIds: string[]) {
   right: 0;
   height: 3px;
   background: #cbd5e1;
+  transition: all var(--transition-base) var(--ease-out);
 }
 
 .risk-summary-panel[data-risk="high"]::before {
   background: linear-gradient(90deg, #ef4444, #dc2626);
+  box-shadow: 0 1px 4px rgba(239, 68, 68, 0.3);
 }
 
 .risk-summary-panel[data-risk="medium"]::before {
   background: linear-gradient(90deg, #f59e0b, #d97706);
+  box-shadow: 0 1px 4px rgba(245, 158, 11, 0.3);
 }
 
 .risk-summary-panel[data-risk="low"]::before {
   background: linear-gradient(90deg, #10b981, #059669);
+  box-shadow: 0 1px 4px rgba(16, 185, 129, 0.3);
 }
 
 .risk-summary-panel[data-risk="unknown"]::before {
@@ -131,7 +135,7 @@ function selectFactor(relationIds: string[]) {
 
 .risk-title {
   display: grid;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .risk-title h2 {
@@ -148,8 +152,13 @@ function selectFactor(relationIds: string[]) {
   min-width: 56px;
   height: 52px;
   border-radius: var(--radius-sm);
-  padding: 6px 10px;
+  padding: var(--space-xs) var(--space-sm);
   text-align: center;
+  transition: all var(--transition-base) var(--ease-out);
+}
+
+.risk-score-badge:hover {
+  transform: scale(1.05);
 }
 
 .score-label {
@@ -169,21 +178,25 @@ function selectFactor(relationIds: string[]) {
 .score-high {
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(220, 38, 38, 0.08));
   color: #b91c1c;
+  box-shadow: var(--shadow-xs);
 }
 
 .score-medium {
   background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(217, 119, 6, 0.08));
   color: #b45309;
+  box-shadow: var(--shadow-xs);
 }
 
 .score-low {
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(5, 150, 105, 0.08));
   color: #047857;
+  box-shadow: var(--shadow-xs);
 }
 
 .score-unknown {
   background: linear-gradient(135deg, rgba(148, 163, 184, 0.15), rgba(100, 116, 139, 0.1));
   color: #475569;
+  box-shadow: var(--shadow-xs);
 }
 
 .risk-summary {
@@ -191,45 +204,67 @@ function selectFactor(relationIds: string[]) {
   color: #475569;
   font-size: 14px;
   line-height: 1.6;
-  padding: 12px;
+  padding: var(--space-sm) var(--space-md);
   border-radius: var(--radius-sm);
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.8), rgba(241, 245, 249, 0.6));
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.9), rgba(241, 245, 249, 0.7));
+  border: 1px solid rgba(203, 213, 225, 0.4);
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
+}
+
+.risk-summary:hover {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.85));
+  box-shadow: var(--shadow-sm);
 }
 
 .risk-factor-list {
   display: grid;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .risk-factor {
   width: 100%;
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--space-sm);
   border: 1.5px solid var(--line);
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.9));
   color: var(--ink);
   text-align: left;
-  padding: 12px;
+  padding: var(--space-sm) var(--space-md);
   border-radius: var(--radius-sm);
-  transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
+  cursor: pointer;
 }
 
 .risk-factor:hover:not(:disabled) {
   border-color: var(--accent);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
+  transform: translateX(3px);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 1), rgba(239, 246, 255, 0.95));
+}
+
+.risk-factor:active:not(:disabled) {
   transform: translateX(2px);
+  box-shadow: var(--shadow-sm);
 }
 
 .risk-factor-selected {
   border-color: var(--accent);
-  background: linear-gradient(145deg, rgba(14, 165, 233, 0.08), rgba(99, 102, 241, 0.04));
-  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
+  background: linear-gradient(145deg, rgba(14, 165, 233, 0.1), rgba(99, 102, 241, 0.06));
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15), var(--shadow-sm);
+}
+
+.risk-factor-selected:hover:not(:disabled) {
+  transform: translateX(4px);
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.2), var(--shadow-lg);
 }
 
 .risk-factor:disabled {
-  cursor: default;
-  opacity: 0.65;
+  cursor: not-allowed;
+  opacity: 0.6;
+  filter: grayscale(0.3);
 }
 
 .factor-icon-wrapper {
@@ -240,26 +275,34 @@ function selectFactor(relationIds: string[]) {
   border-radius: var(--radius-sm);
   flex-shrink: 0;
   margin-top: 1px;
+  transition: all var(--transition-fast) var(--ease-out);
+}
+
+.risk-factor:hover:not(:disabled) .factor-icon-wrapper {
+  transform: scale(1.1);
 }
 
 .level-high .factor-icon-wrapper {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(239, 68, 68, 0.12);
   color: #ef4444;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2);
 }
 
 .level-medium .factor-icon-wrapper {
-  background: rgba(245, 158, 11, 0.1);
+  background: rgba(245, 158, 11, 0.12);
   color: #f59e0b;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.2);
 }
 
 .level-low .factor-icon-wrapper {
-  background: rgba(16, 185, 129, 0.1);
+  background: rgba(16, 185, 129, 0.12);
   color: #10b981;
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.2);
 }
 
 .factor-content {
   display: grid;
-  gap: 3px;
+  gap: var(--space-xs);
   flex: 1;
   min-width: 0;
 }
@@ -267,6 +310,11 @@ function selectFactor(relationIds: string[]) {
 .factor-content strong {
   font-size: 14px;
   color: #0f172a;
+  transition: color var(--transition-fast) var(--ease-out);
+}
+
+.risk-factor:hover:not(:disabled) .factor-content strong {
+  color: var(--accent);
 }
 
 .factor-content span {
@@ -279,12 +327,13 @@ function selectFactor(relationIds: string[]) {
   color: var(--accent);
   font-size: 12px;
   font-weight: 700;
+  animation: fadeIn var(--transition-base) var(--ease-out);
 }
 
 .selected-arrow {
   color: var(--accent);
   flex-shrink: 0;
-  animation: slideIn 200ms ease;
+  animation: slideIn var(--transition-base) var(--ease-out);
 }
 
 @keyframes slideIn {
@@ -292,9 +341,14 @@ function selectFactor(relationIds: string[]) {
   to { opacity: 1; transform: translateX(0); }
 }
 
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .empty-factors {
   text-align: center;
-  padding: 20px;
+  padding: var(--space-xl);
   font-size: 14px;
 }
 </style>

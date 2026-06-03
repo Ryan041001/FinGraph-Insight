@@ -205,7 +205,7 @@
 import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import { useRoute, type RouteLocationNormalizedLoaded } from 'vue-router'
 import { Loader2, Sparkles } from 'lucide-vue-next'
-import type { CompanySearchItem, GraphEdge } from '../api/types'
+import type { CompanySearchItem, GraphEdge, GraphNode, GraphPayload } from '../api/types'
 import CompanyProfilePanel from '../components/CompanyProfilePanel.vue'
 import CompanySearch from '../components/CompanySearch.vue'
 import EvidenceDrawer from '../components/EvidenceDrawer.vue'
@@ -213,7 +213,7 @@ import RelationFilterBar from '../components/RelationFilterBar.vue'
 import ReportPreview from '../components/ReportPreview.vue'
 import QueryWorkbenchPanel from '../components/QueryWorkbenchPanel.vue'
 import RiskSummaryPanel from '../components/RiskSummaryPanel.vue'
-import { analyzeStock } from '../api/analysis'
+import { analyzeStock, streamStockAnalysis } from '../api/analysis'
 import { getCompanyProfile, searchCompanies } from '../api/graph'
 import { importFinancialDataset } from '../api/runtime'
 import { buildRiskWorkbenchModel } from '../product/riskAdapter'
@@ -221,6 +221,7 @@ import { saveReport, saveWatchlistItem } from '../product/storage'
 import type { RiskWorkbenchModel } from '../product/types'
 
 const DEFAULT_COMPANY_NAME = '邦盛科技'
+const LAST_WORKBENCH_COMPANY_KEY = 'financial-risk-workbench-last-company'
 const RiskGraphCanvas = defineAsyncComponent(() => import('../components/RiskGraphCanvas.vue'))
 let route: RouteLocationNormalizedLoaded | null = null
 try {
@@ -229,7 +230,7 @@ try {
   route = null
 }
 
-const keyword = ref(DEFAULT_COMPANY_NAME)
+const keyword = ref(initialWorkbenchCompanyName())
 const loading = ref(false)
 const error = ref('')
 const model = ref<RiskWorkbenchModel | null>(null)
@@ -435,6 +436,7 @@ async function loadCompany(value: string) {
   }
 
   activeRequestQuery.value = query
+  rememberLastWorkbenchCompany(query)
   loading.value = true
   error.value = ''
   try {
@@ -491,16 +493,52 @@ async function loadCompanyEvidence(useRealtimeAndLlm: boolean) {
   evidenceError.value = ''
   evidenceRealtimeRequested.value = useRealtimeAndLlm
   try {
-    const result = await analyzeStock({
+    const request = {
       stockCode: listedStockCode.value,
       companyName: model.value.company.name,
       refreshNews: useRealtimeAndLlm,
       useLlm: useRealtimeAndLlm
-    })
+    }
+    if (useRealtimeAndLlm) {
+      await streamStockAnalysis(request, {
+        onNewsEvent: (event) => {
+          if (requestId === evidenceRequestSequence) {
+            appendStreamedNewsEvent(event)
+          }
+        },
+        onSubgraph: (subgraph) => {
+          if (requestId === evidenceRequestSequence) {
+            mergeEvidenceAnalysisPatch({ subgraph })
+            mergeAnalysisSubgraphIntoCurrentModel({ subgraph })
+          }
+        },
+        onAnalysis: (analysis) => {
+          if (requestId === evidenceRequestSequence) {
+            mergeEvidenceAnalysisPatch({ analysis })
+          }
+        },
+        onDone: (result) => {
+          if (requestId !== evidenceRequestSequence) {
+            return
+          }
+          evidenceAnalysis.value = result
+          mergeAnalysisSubgraphIntoCurrentModel(result)
+        },
+        onError: (message) => {
+          if (requestId === evidenceRequestSequence) {
+            evidenceError.value = message
+          }
+        }
+      })
+      return
+    }
+
+    const result = await analyzeStock(request)
     if (requestId !== evidenceRequestSequence) {
       return
     }
     evidenceAnalysis.value = result
+    mergeAnalysisSubgraphIntoCurrentModel(result)
   } catch {
     if (requestId === evidenceRequestSequence) {
       evidenceError.value = '证据线索研判暂不可用，请稍后重试；图谱、路径和证据链仍可继续查看。'
@@ -509,6 +547,22 @@ async function loadCompanyEvidence(useRealtimeAndLlm: boolean) {
     if (requestId === evidenceRequestSequence) {
       evidenceLoading.value = false
     }
+  }
+}
+
+function appendStreamedNewsEvent(event: Record<string, unknown>) {
+  const current = evidenceAnalysis.value ?? {}
+  const currentEvents = Array.isArray(current.news_events) ? current.news_events : []
+  evidenceAnalysis.value = {
+    ...current,
+    news_events: [...currentEvents, event]
+  }
+}
+
+function mergeEvidenceAnalysisPatch(patch: Record<string, unknown>) {
+  evidenceAnalysis.value = {
+    ...(evidenceAnalysis.value ?? {}),
+    ...patch
   }
 }
 
@@ -688,17 +742,133 @@ function normalizeEvidenceCopy(value: string) {
     .replace(/图谱事件/g, '证据线索')
 }
 
-function knownMarketStockCode(companyName: string) {
-  const knownCodes: Record<string, string> = {
-    浦发银行: '600000',
-    招商银行: '600036',
-    平安银行: '000001',
-    中国平安: '601318',
-    贵州茅台: '600519',
-    比亚迪: '002594'
+function mergeAnalysisSubgraphIntoCurrentModel(value: Record<string, unknown>) {
+  if (!model.value) {
+    return
   }
 
-  return knownCodes[companyName] ?? ''
+  const subgraph = graphPayloadFromUnknown(value.subgraph)
+  if (subgraph.nodes.length === 0 && subgraph.edges.length === 0) {
+    return
+  }
+
+  const nodesById = new Map(model.value.graph.nodes.map((node) => [node.id, node]))
+  const edgesById = new Map(model.value.graph.edges.map((edge) => [edge.id, edge]))
+  for (const node of subgraph.nodes) {
+    nodesById.set(node.id, node)
+  }
+  for (const edge of subgraph.edges) {
+    edgesById.set(edge.id, edge)
+  }
+
+  const currentCompany = model.value.company
+  const rebuiltModel = buildRiskWorkbenchModel({
+    company: {
+      id: currentCompany.id,
+      name: currentCompany.name,
+      industry: currentCompany.industry,
+      legal_representative: currentCompany.legalRepresentative
+    },
+    profile: {},
+    graph: {
+      nodes: Array.from(nodesById.values()),
+      edges: Array.from(edgesById.values())
+    }
+  })
+
+  model.value = {
+    ...rebuiltModel,
+    company: {
+      ...rebuiltModel.company,
+      id: currentCompany.id,
+      name: currentCompany.name
+    }
+  }
+}
+
+function graphPayloadFromUnknown(value: unknown): GraphPayload {
+  const record = asRecord(value)
+  const nodes = Array.isArray(record.nodes) ? record.nodes.filter(isGraphNode) : []
+  const edges = Array.isArray(record.edges) ? record.edges.filter(isGraphEdge) : []
+  return { nodes, edges }
+}
+
+function isGraphNode(value: unknown): value is GraphNode {
+  const node = asRecord(value)
+  return typeof node.id === 'string'
+    && typeof node.label === 'string'
+    && typeof node.type === 'string'
+    && typeof node.properties === 'object'
+    && node.properties !== null
+}
+
+function isGraphEdge(value: unknown): value is GraphEdge {
+  const edge = asRecord(value)
+  return typeof edge.id === 'string'
+    && typeof edge.source === 'string'
+    && typeof edge.target === 'string'
+    && typeof edge.type === 'string'
+    && typeof edge.label === 'string'
+}
+
+function knownMarketStockCode(companyName: string) {
+  const normalizedName = normalizeCompanyLookupName(companyName)
+  const compactName = stripCompanyLegalSuffix(normalizedName)
+  const knownStocks = [
+    { code: '600000', names: ['浦发银行', '上海浦东发展银行股份有限公司'] },
+    { code: '600036', names: ['招商银行', '招商银行股份有限公司'] },
+    { code: '000001', names: ['平安银行', '平安银行股份有限公司'] },
+    { code: '601318', names: ['中国平安', '中国平安保险（集团）股份有限公司', '中国平安保险(集团)股份有限公司'] },
+    { code: '600519', names: ['贵州茅台', '贵州茅台酒股份有限公司'] },
+    { code: '002594', names: ['比亚迪', '比亚迪股份有限公司'] }
+  ]
+
+  const match = knownStocks.find((stock) => stock.names.some((name) => {
+    const alias = normalizeCompanyLookupName(name)
+    const compactAlias = stripCompanyLegalSuffix(alias)
+
+    return normalizedName === alias || compactName === compactAlias
+  }))
+  return match?.code ?? ''
+}
+
+function initialWorkbenchCompanyName() {
+  const routeCompany = typeof route?.query.company === 'string' ? route.query.company.trim() : ''
+  if (routeCompany) {
+    return routeCompany
+  }
+
+  const storedCompany = localStorage.getItem(LAST_WORKBENCH_COMPANY_KEY)?.trim() ?? ''
+  return storedCompany || DEFAULT_COMPANY_NAME
+}
+
+function rememberLastWorkbenchCompany(companyName: string) {
+  const normalizedName = companyName.trim()
+  if (normalizedName) {
+    localStorage.setItem(LAST_WORKBENCH_COMPANY_KEY, normalizedName)
+  }
+}
+
+function normalizeCompanyLookupName(value: string) {
+  return value
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/（/g, '(')
+    .replace(/）/g, ')')
+}
+
+function stripCompanyLegalSuffix(value: string) {
+  const suffixes = [
+    '集团股份有限公司',
+    '股份有限公司',
+    '有限责任公司',
+    '集团有限公司',
+    '控股有限公司',
+    '有限公司'
+  ]
+
+  const suffix = suffixes.find((item) => value.endsWith(item))
+  return suffix ? value.slice(0, -suffix.length) : value
 }
 
 onMounted(() => {
@@ -714,18 +884,24 @@ onMounted(() => {
 .workbench-layout {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 18px;
+  gap: var(--space-lg);
   align-items: start;
 }
 
 .graph-workspace {
   display: grid;
   grid-template-columns: minmax(0, 3.2fr) minmax(280px, 0.9fr);
-  gap: 12px;
+  gap: var(--space-md);
   align-items: start;
   background:
     linear-gradient(135deg, rgba(14, 165, 233, 0.06), rgba(245, 158, 11, 0.04)),
     var(--panel);
+  box-shadow: var(--shadow-lg);
+  transition: box-shadow var(--transition-base) var(--ease-out);
+}
+
+.graph-workspace:hover {
+  box-shadow: var(--shadow-xl);
 }
 
 .graph-workspace-header {
@@ -740,17 +916,24 @@ onMounted(() => {
 
 .graph-workspace-main {
   display: grid;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .graph-workspace-main :deep(.risk-graph-canvas) {
   min-height: clamp(560px, 50vh, 700px);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  transition: box-shadow var(--transition-base) var(--ease-out);
+}
+
+.graph-workspace-main :deep(.risk-graph-canvas:hover) {
+  box-shadow: var(--shadow-lg);
 }
 
 .graph-workspace-side {
   display: grid;
   grid-template-rows: auto auto minmax(140px, 1fr);
-  gap: 12px;
+  gap: var(--space-md);
   align-self: stretch;
 }
 
@@ -763,7 +946,7 @@ onMounted(() => {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: minmax(260px, 0.95fr) minmax(320px, 1.1fr) minmax(340px, 1.35fr);
-  gap: 12px;
+  gap: var(--space-md);
   align-items: stretch;
   padding-top: 0;
 }
@@ -771,17 +954,25 @@ onMounted(() => {
 .graph-workspace-lower :deep(.panel),
 .workspace-subpanel {
   min-width: 0;
-  box-shadow: none;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-fast) var(--ease-out),
+              box-shadow var(--transition-base) var(--ease-out);
+}
+
+.graph-workspace-lower :deep(.panel):hover,
+.workspace-subpanel:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
 }
 
 .workspace-subpanel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
+  gap: var(--space-md);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(241, 247, 252, 0.84));
-  padding: 18px;
+  padding: var(--space-lg);
 }
 
 .graph-workspace-lower :deep(.panel),
@@ -800,30 +991,42 @@ onMounted(() => {
   align-content: start;
   min-height: 0;
   overflow: auto;
-  padding-right: 4px;
+  padding-right: var(--space-xs);
 }
 
 .quick-actions {
   display: grid;
-  gap: 10px;
+  gap: var(--space-sm);
   align-content: start;
   border: 1px solid rgba(183, 121, 31, 0.18);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background:
     linear-gradient(135deg, rgba(255, 251, 235, 0.88), rgba(236, 253, 245, 0.7)),
     var(--panel-soft);
-  padding: 14px;
+  padding: var(--space-md);
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow var(--transition-base) var(--ease-out);
+}
+
+.quick-actions:hover {
+  box-shadow: var(--shadow-sm);
 }
 
 .market-mini-module {
   display: grid;
-  gap: 9px;
+  gap: var(--space-sm);
   border: 1px solid rgba(14, 143, 179, 0.18);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background:
     linear-gradient(145deg, rgba(14, 165, 233, 0.10), rgba(236, 253, 245, 0.72)),
     var(--panel-soft);
-  padding: 14px;
+  padding: var(--space-md);
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow var(--transition-base) var(--ease-out);
+}
+
+.market-mini-module:hover {
+  box-shadow: var(--shadow-sm);
 }
 
 .market-mini-module h3 {
@@ -862,13 +1065,13 @@ onMounted(() => {
 
 .workbench-detail-grid {
   display: grid;
-  gap: 18px;
+  gap: var(--space-lg);
   align-items: start;
 }
 
 .evidence-hub-panel {
   display: grid;
-  gap: 14px;
+  gap: var(--space-md);
 }
 
 .graph-workspace-evidence-hub {
@@ -879,14 +1082,14 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
   flex-wrap: wrap;
 }
 
 .evidence-actions button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-xs);
 }
 
 .evidence-hub-copy {
@@ -899,15 +1102,23 @@ onMounted(() => {
 .evidence-stat-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .evidence-stat-row article {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(241, 247, 252, 0.84));
-  padding: 14px;
+  padding: var(--space-md);
+  box-shadow: var(--shadow-xs);
+  transition: transform var(--transition-fast) var(--ease-out),
+              box-shadow var(--transition-base) var(--ease-out);
+}
+
+.evidence-stat-row article:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
 }
 
 .evidence-stat-row span {
@@ -918,18 +1129,24 @@ onMounted(() => {
 
 .evidence-stat-row strong {
   display: block;
-  margin-top: 6px;
+  margin-top: var(--space-xs);
   color: #0f172a;
   font-size: 22px;
 }
 
 .analysis-brief-card {
   border: 1px solid rgba(14, 143, 179, 0.18);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background:
     linear-gradient(145deg, rgba(14, 165, 233, 0.09), rgba(236, 253, 245, 0.62)),
     #ffffff;
-  padding: 15px;
+  padding: var(--space-md);
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow var(--transition-base) var(--ease-out);
+}
+
+.analysis-brief-card:hover {
+  box-shadow: var(--shadow-sm);
 }
 
 .analysis-brief-card p {
@@ -939,8 +1156,8 @@ onMounted(() => {
 }
 
 .analysis-brief-card ul {
-  margin: 12px 0 0;
-  padding-left: 18px;
+  margin: var(--space-md) 0 0;
+  padding-left: var(--space-lg);
   color: #92400e;
   font-size: 13px;
   line-height: 1.55;
@@ -949,23 +1166,33 @@ onMounted(() => {
 .news-evidence-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .news-evidence-card {
   display: grid;
-  gap: 8px;
+  gap: var(--space-sm);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.9));
-  padding: 14px;
+  padding: var(--space-md);
   min-width: 0;
+  box-shadow: var(--shadow-xs);
+  transition: transform var(--transition-fast) var(--ease-out),
+              box-shadow var(--transition-base) var(--ease-out),
+              border-color var(--transition-fast) var(--ease-out);
+}
+
+.news-evidence-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--accent);
 }
 
 .news-evidence-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   flex-wrap: wrap;
   color: var(--muted);
   font-size: 12px;
@@ -976,7 +1203,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  padding: 3px 8px;
+  padding: 3px var(--space-sm);
   font-size: 11px;
   font-weight: 700;
 }
@@ -1008,10 +1235,12 @@ onMounted(() => {
   font-size: 13px;
   font-weight: 700;
   text-decoration: none;
+  transition: color var(--transition-fast) var(--ease-out);
 }
 
 .news-evidence-card a:hover {
   text-decoration: underline;
+  color: var(--accent);
 }
 
 .workbench-detail-grid :deep(.query-workbench),
@@ -1027,17 +1256,25 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   border: 1px solid rgba(14, 143, 179, 0.26);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: rgba(14, 165, 233, 0.10);
   color: #075985;
-  padding: 10px 12px;
+  padding: var(--space-sm) var(--space-md);
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow var(--transition-base) var(--ease-out);
+}
+
+.selection-banner:hover {
+  box-shadow: var(--shadow-sm);
 }
 
 .path-row,
 .evidence-row {
   border-left: 4px solid transparent;
+  transition: border-color var(--transition-fast) var(--ease-out),
+              background-color var(--transition-fast) var(--ease-out);
 }
 
 .selected-row {
@@ -1062,10 +1299,12 @@ onMounted(() => {
   padding: 0;
   font-size: 13px;
   font-weight: 700;
+  transition: color var(--transition-fast) var(--ease-out);
 }
 
 .path-list-toggle:hover {
   text-decoration: underline;
+  color: var(--accent);
 }
 
 @media (max-width: 1100px) {

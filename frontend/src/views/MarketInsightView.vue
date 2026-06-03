@@ -724,20 +724,21 @@ onMounted(() => {
 .market-form button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-xs);
 }
 
 .market-hint {
-  margin: -8px 0 0;
+  margin: calc(var(--space-sm) * -1) 0 0;
   border: 1px solid rgba(14, 143, 179, 0.14);
   border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.78);
   color: var(--muted);
-  padding: 10px 14px;
+  padding: var(--space-sm) var(--space-md);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   font-size: 13px;
+  box-shadow: var(--shadow-xs);
 }
 
 .market-hint svg {
@@ -753,13 +754,19 @@ onMounted(() => {
 .market-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  gap: var(--space-xl);
   align-items: stretch;
 }
 
 .metric-card {
   position: relative;
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-base) var(--ease-out);
+}
+
+.metric-card:hover {
+  box-shadow: var(--shadow-md);
 }
 
 .metric-card::after {
@@ -771,23 +778,36 @@ onMounted(() => {
   height: 60px;
   background: linear-gradient(135deg, rgba(14, 165, 233, 0.06), transparent);
   border-radius: 0 0 0 60px;
+  transition: width var(--transition-slow) var(--ease-out),
+              height var(--transition-slow) var(--ease-out);
+}
+
+.metric-card:hover::after {
+  width: 80px;
+  height: 80px;
 }
 
 .chart-panel,
 .analysis-panel {
   display: grid;
-  gap: 16px;
+  gap: var(--space-lg);
 }
 
 .candlestick-chart {
   min-height: 320px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   background:
     linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(241, 245, 249, 0.92)),
     radial-gradient(circle at top right, rgba(14, 165, 233, 0.14), transparent 34%);
   overflow: hidden;
   position: relative;
+  box-shadow: var(--shadow-md);
+  transition: box-shadow var(--transition-base) var(--ease-out);
+}
+
+.candlestick-chart:hover {
+  box-shadow: var(--shadow-lg);
 }
 
 .candlestick-chart svg {
@@ -820,29 +840,31 @@ onMounted(() => {
 
 .candle-body {
   stroke-width: 1.6;
-  transition: opacity 160ms ease, transform 160ms ease;
+  transition: opacity var(--transition-fast) var(--ease-out),
+              transform var(--transition-fast) var(--ease-out);
   transform-box: fill-box;
   transform-origin: center;
 }
 
 .candle:hover .candle-body {
   opacity: 0.82;
-  transform: scaleY(1.04);
+  transform: scaleY(1.06);
 }
 
 .chart-data-note {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-xs);
   width: fit-content;
-  margin: -4px 0 0;
+  margin: calc(var(--space-xs) * -1) 0 0;
   border: 1px solid rgba(245, 158, 11, 0.22);
   border-radius: 999px;
   background: rgba(255, 251, 235, 0.76);
   color: #92400e;
-  padding: 7px 11px;
+  padding: var(--space-xs) var(--space-sm);
   font-size: 12px;
   font-weight: 600;
+  box-shadow: var(--shadow-xs);
 }
 
 .chart-data-note svg {
@@ -858,8 +880,8 @@ onMounted(() => {
 
 .event-strip article {
   display: flex;
-  gap: 12px;
-  padding: 10px 0;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0;
 }
 
 .event-timeline {
@@ -875,15 +897,22 @@ onMounted(() => {
   height: 10px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--accent-2), #d97706);
-  box-shadow: 0 0 8px rgba(245, 158, 11, 0.3);
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
   flex-shrink: 0;
+  transition: box-shadow var(--transition-base) var(--ease-out),
+              transform var(--transition-fast) var(--ease-out);
+}
+
+.event-strip article:hover .event-dot {
+  box-shadow: 0 0 14px rgba(245, 158, 11, 0.6);
+  transform: scale(1.2);
 }
 
 .event-line {
   width: 2px;
   flex: 1;
   background: linear-gradient(180deg, rgba(245, 158, 11, 0.3), transparent);
-  margin-top: 4px;
+  margin-top: var(--space-xs);
 }
 
 .event-strip article:last-child .event-line {
@@ -892,8 +921,8 @@ onMounted(() => {
 
 .event-body {
   display: grid;
-  gap: 3px;
-  padding-bottom: 10px;
+  gap: var(--space-xs);
+  padding-bottom: var(--space-sm);
   border-bottom: 1px dashed var(--line);
   flex: 1;
 }
@@ -915,14 +944,14 @@ onMounted(() => {
 
 .analysis-result {
   display: grid;
-  gap: 14px;
+  gap: var(--space-md);
 }
 
 .analysis-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
+  gap: var(--space-sm);
   flex-wrap: wrap;
 }
 
@@ -932,9 +961,20 @@ onMounted(() => {
 .fundamental-card,
 .news-status-card {
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.9));
-  padding: 16px;
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow var(--transition-base) var(--ease-out),
+              transform var(--transition-fast) var(--ease-out);
+}
+
+.analysis-summary:hover,
+.analysis-columns article:hover,
+.analysis-list-card:hover,
+.fundamental-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
 }
 
 .analysis-summary p {
@@ -946,9 +986,9 @@ onMounted(() => {
 .confidence-meter {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 14px;
-  padding-top: 12px;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
   border-top: 1px dashed var(--line);
 }
 
@@ -964,13 +1004,15 @@ onMounted(() => {
   border-radius: 999px;
   background: rgba(226, 232, 240, 0.8);
   overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .meter-fill {
   height: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, #0ea5e9, #6366f1);
-  transition: width 600ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: width var(--transition-slow) var(--ease-out);
+  box-shadow: 0 0 8px rgba(14, 165, 233, 0.3);
 }
 
 .confidence-meter strong {
@@ -982,7 +1024,7 @@ onMounted(() => {
 .analysis-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: var(--space-md);
 }
 
 .factor-panel {
@@ -1009,7 +1051,7 @@ onMounted(() => {
 
 .analysis-result ul {
   display: grid;
-  gap: 8px;
+  gap: var(--space-sm);
   margin: 0;
   padding-left: 0;
   list-style: none;
@@ -1018,7 +1060,7 @@ onMounted(() => {
 .analysis-result ul li {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--space-sm);
   font-size: 14px;
   line-height: 1.55;
   color: #334155;
@@ -1051,21 +1093,22 @@ onMounted(() => {
 .fundamental-card dl {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--space-sm);
   margin: 0;
 }
 
 .fundamental-card div {
   border-radius: var(--radius-sm);
   background: rgba(241, 245, 249, 0.92);
-  padding: 12px;
+  padding: var(--space-md);
   border: 1px solid var(--line);
-  transition: all 150ms ease;
+  transition: all var(--transition-fast) var(--ease-out);
 }
 
 .fundamental-card div:hover {
   border-color: var(--line-strong);
   box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
 }
 
 .fundamental-card dt {
@@ -1074,7 +1117,7 @@ onMounted(() => {
 }
 
 .fundamental-card dd {
-  margin: 6px 0 0;
+  margin: var(--space-xs) 0 0;
   font-weight: 700;
   font-size: 15px;
   color: #0f172a;
@@ -1088,7 +1131,7 @@ onMounted(() => {
 .news-status-card {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--space-sm);
   color: #475569;
   font-size: 13px;
   line-height: 1.6;
@@ -1118,7 +1161,7 @@ onMounted(() => {
 .disclaimer {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   color: var(--muted);
   line-height: 1.6;
   font-size: 12px;

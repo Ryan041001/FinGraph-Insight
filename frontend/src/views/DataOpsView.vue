@@ -272,18 +272,31 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
   position: relative;
   overflow: hidden;
   padding-top: 48px;
+  transition: all var(--transition-base) var(--ease-out);
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
 }
 
 .metric-icon {
   position: absolute;
-  top: 14px;
-  right: 14px;
+  top: var(--space-md);
+  right: var(--space-md);
   display: grid;
   place-items: center;
   width: 36px;
   height: 36px;
   border-radius: var(--radius-sm);
   color: #ffffff;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-base) var(--ease-out);
+}
+
+.metric-card:hover .metric-icon {
+  transform: scale(1.1) rotate(5deg);
+  box-shadow: var(--shadow-md);
 }
 
 .import-icon {
@@ -305,13 +318,13 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
 .ops-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  gap: var(--space-xl);
   align-items: stretch;
 }
 
 .ops-panel {
   display: grid;
-  gap: 16px;
+  gap: var(--space-lg);
   align-content: start;
 }
 
@@ -319,46 +332,49 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 40px 24px;
+  gap: var(--space-sm);
+  padding: var(--space-2xl) var(--space-xl);
   color: var(--muted);
   font-size: 14px;
 }
 
 .empty-state svg {
   color: #cbd5e1;
+  opacity: 0.6;
 }
 
 .job-list {
   display: grid;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .job-card {
-  border: 1px solid var(--line);
+  border: 1.5px solid var(--line);
   border-radius: var(--radius-sm);
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.9));
-  padding: 14px;
-  transition: all 180ms ease;
+  padding: var(--space-md);
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
 }
 
 .job-card:hover {
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
   border-color: var(--line-strong);
+  transform: translateY(-1px);
 }
 
 .job-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
 }
 
 .job-status {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .job-status strong {
@@ -377,49 +393,58 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
   height: 8px;
   border-radius: 50%;
   background: #cbd5e1;
+  transition: all var(--transition-base) var(--ease-out);
 }
 
 .status-dot.running {
   background: #0ea5e9;
-  box-shadow: 0 0 8px rgba(14, 165, 233, 0.4);
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.5);
   animation: pulse 2s infinite;
 }
 
 .status-dot.completed,
 .status-dot.success {
   background: #10b981;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
 }
 
 .status-dot.failed {
   background: #ef4444;
-  box-shadow: 0 0 6px rgba(239, 68, 68, 0.3);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.2); }
 }
 
 .job-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--space-sm);
   margin: 0;
 }
 
 .job-metric {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.9);
-  padding: 10px;
+  background: rgba(255, 255, 255, 0.95);
+  padding: var(--space-sm);
   text-align: center;
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
+}
+
+.job-metric:hover {
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+  border-color: var(--accent);
 }
 
 .job-metric dt {
   color: var(--muted);
   font-size: 11px;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
 }
 
 .job-metric dd {
@@ -432,28 +457,30 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
 .quality-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .quality-card {
-  border: 1px solid var(--line);
+  border: 1.5px solid var(--line);
   border-radius: var(--radius-sm);
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.9));
-  padding: 16px;
+  padding: var(--space-lg);
   text-align: center;
-  transition: all 180ms ease;
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
 }
 
 .quality-card:hover {
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
   border-color: var(--line-strong);
+  transform: translateY(-2px);
 }
 
 .quality-card span {
   display: block;
   color: var(--muted);
   font-size: 12px;
-  margin-bottom: 6px;
+  margin-bottom: var(--space-xs);
 }
 
 .quality-card strong {
@@ -464,17 +491,33 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
 }
 
 .hint {
-  padding: 20px;
+  padding: var(--space-xl);
   text-align: center;
-  background: linear-gradient(145deg, rgba(255, 251, 235, 0.6), rgba(254, 249, 195, 0.3));
+  background: linear-gradient(145deg, rgba(255, 251, 235, 0.7), rgba(254, 249, 195, 0.4));
   border-radius: var(--radius-sm);
   border: 1px dashed var(--line);
+  transition: all var(--transition-base) var(--ease-out);
+}
+
+.hint:hover {
+  background: linear-gradient(145deg, rgba(255, 251, 235, 0.85), rgba(254, 249, 195, 0.55));
 }
 
 button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-xs);
+  transition: all var(--transition-base) var(--ease-out);
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: var(--shadow-xs);
 }
 
 .spin {

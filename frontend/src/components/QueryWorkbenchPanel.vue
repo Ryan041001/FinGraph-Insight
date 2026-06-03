@@ -11,7 +11,7 @@
       <label for="query-workbench-question">输入问题</label>
       <textarea id="query-workbench-question" v-model="question" name="query-workbench-question" rows="4" />
       <div class="query-footer">
-        <span>结合当前企业上下文，生成 AI 回答并保留可审计查询结果。</span>
+        <span>结合当前企业上下文，生成 AI 回答并保留可审计查询语句和图谱。</span>
         <button type="submit" :disabled="loading">{{ loading ? '生成中' : '发送追问' }}</button>
       </div>
     </form>
@@ -24,22 +24,14 @@
 
     <article v-if="result" class="answer-card audit-card">
       <strong>审计与可视化</strong>
-      <p v-if="result.cypher"><code>{{ result.cypher }}</code></p>
-      <small v-for="message in result.messages" :key="message">{{ message }}</small>
-      <div v-if="tableRows.length > 0" class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th v-for="column in tableColumns" :key="column">{{ column }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(row, rowIndex) in tableRows" :key="rowIndex">
-              <td v-for="(cell, cellIndex) in normalizeRow(row)" :key="cellIndex">{{ formatCell(cell) }}</td>
-            </tr>
-          </tbody>
-        </table>
+      <div v-if="result.cypher" class="cypher-shell" aria-label="生成的查询语句">
+        <div class="cypher-toolbar">
+          <span>查询语句</span>
+          <small>Cypher</small>
+        </div>
+        <pre class="cypher-code"><code v-html="highlightedCypher"></code></pre>
       </div>
+      <small v-for="message in result.messages" :key="message">{{ message }}</small>
       <div v-if="hasAuditGraph" class="audit-graph-shell">
         <div class="audit-graph-header">
           <span>真实查询图谱</span>
@@ -77,8 +69,7 @@ const error = ref('')
 let requestSequence = 0
 
 const renderedAnswer = computed(() => renderAnswer(result.value?.answer ?? ''))
-const tableColumns = computed(() => result.value?.table?.columns ?? [])
-const tableRows = computed(() => result.value?.table?.rows ?? [])
+const highlightedCypher = computed(() => highlightCypher(result.value?.cypher ?? ''))
 const auditGraphNodeCount = computed(() => result.value?.graph?.nodes.length ?? 0)
 const auditGraphEdgeCount = computed(() => result.value?.graph?.edges.length ?? 0)
 const hasAuditGraph = computed(() => auditGraphNodeCount.value > 0)
@@ -175,27 +166,115 @@ function mergeStreamResult(current: UnifiedQaResponse | null, metadata: Partial<
 }
 
 function renderAnswer(answer: string) {
-  const htmlBlockPattern = /(<!--\s*html-render-start\s*-->[\s\S]*?<!--\s*html-render-end\s*-->)/gi
-  const rendered = answer
-    .split(htmlBlockPattern)
-    .map((part) => {
-      if (/^<!--\s*html-render-start\s*-->/i.test(part)) {
-        const html = part
-          .replace(/^<!--\s*html-render-start\s*-->/i, '')
-          .replace(/<!--\s*html-render-end\s*-->$/i, '')
-        return sanitizeAnswerHtml(html)
+  return sanitizeAnswerHtml(renderMarkedHtmlFragments(answer))
+}
+
+function renderMarkedHtmlFragments(value: string) {
+  const html: string[] = []
+  let cursor = 0
+
+  while (cursor < value.length) {
+    const start = findHtmlRenderMarker(value, 'start', cursor)
+    if (!start) {
+      html.push(renderMarkdownFragment(trimIncompleteHtmlTail(value.slice(cursor))))
+      break
+    }
+
+    if (start.index > cursor) {
+      html.push(renderMarkdownFragment(trimIncompleteHtmlTail(value.slice(cursor, start.index))))
+    }
+
+    const end = findHtmlRenderMarker(value, 'end', start.end)
+    const rawHtml = value.slice(start.end, end?.index ?? value.length)
+    html.push(renderRawHtmlFragment(rawHtml))
+
+    if (!end) {
+      break
+    }
+    cursor = end.end
+  }
+
+  return html.join('')
+}
+
+function findHtmlRenderMarker(value: string, type: 'start' | 'end', fromIndex: number) {
+  const markerPattern = type === 'start'
+    ? /<!--\s*html-render-start\s*-->/gi
+    : /<!--\s*html-render-end\s*-->/gi
+  markerPattern.lastIndex = fromIndex
+  const match = markerPattern.exec(value)
+  if (!match) {
+    return null
+  }
+  return {
+    index: match.index,
+    end: markerPattern.lastIndex
+  }
+}
+
+function renderRawHtmlFragment(value: string) {
+  const decoded = decodeHtmlEntities(value.trim())
+  return sanitizeAnswerHtml(trimIncompleteHtmlTag(decoded))
+}
+
+function trimIncompleteHtmlTag(value: string) {
+  const lastOpenBracket = value.lastIndexOf('<')
+  const lastCloseBracket = value.lastIndexOf('>')
+  if (lastOpenBracket > lastCloseBracket) {
+    return value.slice(0, lastOpenBracket)
+  }
+  return value
+}
+
+function decodeHtmlEntities(value: string) {
+  const textarea = document.createElement('textarea')
+  textarea.innerHTML = value
+  return textarea.value
+}
+
+function trimIncompleteHtmlTail(value: string) {
+  let cutIndex = value.length
+  const markerStartIndex = value.lastIndexOf('<!-- html-render-start')
+  const markerEndIndex = value.lastIndexOf('<!-- html-render-end -->')
+  if (markerStartIndex > markerEndIndex) {
+    cutIndex = Math.min(cutIndex, markerStartIndex)
+  }
+
+  const lastOpenBracket = value.lastIndexOf('<')
+  const lastCloseBracket = value.lastIndexOf('>')
+  if (lastOpenBracket > lastCloseBracket) {
+    cutIndex = Math.min(cutIndex, lastOpenBracket)
+  }
+
+  const blockTagPattern = /<\/?(article|section|div|details|table|ul|ol|dl)\b[^>]*>/gi
+  const stack: Array<{ tag: string; index: number }> = []
+  for (const match of value.matchAll(blockTagPattern)) {
+    const index = match.index ?? 0
+    if (index >= cutIndex) {
+      break
+    }
+
+    const rawTag = match[0]
+    const tag = match[1].toLowerCase()
+    if (rawTag.startsWith('</')) {
+      const openIndex = stack.map((item) => item.tag).lastIndexOf(tag)
+      if (openIndex >= 0) {
+        stack.splice(openIndex, 1)
       }
+    } else if (!rawTag.endsWith('/>')) {
+      stack.push({ tag, index })
+    }
+  }
 
-      return renderMarkdownFragment(part)
-    })
-    .join('')
-
-  return sanitizeAnswerHtml(rendered)
+  if (stack.length > 0) {
+    cutIndex = Math.min(cutIndex, stack[0].index)
+  }
+  return value.slice(0, cutIndex)
 }
 
 function renderMarkdownFragment(value: string) {
   const html: string[] = []
-  const htmlBlockPattern = /<(article|section|div|table|ul|ol|dl)(?:\s[^>]*)?>[\s\S]*?<\/\1>/gi
+  const htmlBlockPattern = /<(article|section|div|details|table|ul|ol|dl)(?:\s[^>]*)?>[\s\S]*?<\/\1>/gi
   let cursor = 0
 
   for (const match of value.matchAll(htmlBlockPattern)) {
@@ -266,8 +345,8 @@ function renderMarkdownTextFragment(value: string) {
 
 function sanitizeAnswerHtml(value: string) {
   return DOMPurify.sanitize(value, {
-    ALLOWED_TAGS: ['article', 'aside', 'div', 'section', 'p', 'span', 'strong', 'em', 'b', 'i', 'code', 'ul', 'ol', 'li', 'dl', 'dt', 'dd', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'h2', 'h3', 'h4', 'br', 'a'],
-    ALLOWED_ATTR: ['class', 'data-*', 'aria-label', 'href', 'target', 'rel'],
+    ALLOWED_TAGS: ['article', 'aside', 'div', 'section', 'details', 'summary', 'p', 'span', 'strong', 'em', 'b', 'i', 'code', 'ul', 'ol', 'li', 'dl', 'dt', 'dd', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'h2', 'h3', 'h4', 'br', 'a'],
+    ALLOWED_ATTR: ['style', 'href', 'target', 'rel'],
     ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
   })
 }
@@ -299,37 +378,56 @@ function escapeHtml(value: string) {
     .replace(/'/g, '&#39;')
 }
 
-function normalizeRow(row: unknown) {
-  if (Array.isArray(row)) {
-    return row
-  }
-  if (typeof row === 'object' && row !== null) {
-    return tableColumns.value.map((column) => (row as Record<string, unknown>)[column])
-  }
-  return [row]
-}
+function highlightCypher(value: string) {
+  const tokenPattern = /("[^"]*"|'[^']*')|(:[A-Za-z_][A-Za-z0-9_]*)|\b(MATCH|RETURN|WHERE|LIMIT|OPTIONAL|WITH|ORDER|BY|ASC|DESC|AND|OR|AS|DISTINCT|CALL|UNWIND)\b|([A-Za-z_][A-Za-z0-9_]*)(?=\s*:)(?=[^{}]*})/gi
+  let cursor = 0
+  const html: string[] = []
 
-function formatCell(value: unknown) {
-  if (value === null || value === undefined) {
-    return '-'
+  for (const match of value.matchAll(tokenPattern)) {
+    const index = match.index ?? 0
+    if (index > cursor) {
+      html.push(escapeHtml(value.slice(cursor, index)))
+    }
+
+    const token = match[0]
+    if (match[1]) {
+      html.push(`<span class="cypher-token-string">${escapeHtml(token)}</span>`)
+    } else if (match[2]) {
+      html.push(`<span class="cypher-token-label">${escapeHtml(token)}</span>`)
+    } else if (match[3]) {
+      html.push(`<span class="cypher-token-keyword">${escapeHtml(token.toUpperCase())}</span>`)
+    } else {
+      html.push(`<span class="cypher-token-property">${escapeHtml(token)}</span>`)
+    }
+    cursor = index + token.length
   }
-  return typeof value === 'object' ? JSON.stringify(value) : String(value)
+
+  if (cursor < value.length) {
+    html.push(escapeHtml(value.slice(cursor)))
+  }
+  return html.join('')
 }
 </script>
 
 <style scoped>
 .query-workbench {
   display: grid;
-  gap: 14px;
+  gap: var(--space-md);
 }
 
 .query-card {
   display: grid;
-  gap: 10px;
+  gap: var(--space-sm);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(241, 247, 252, 0.86));
-  padding: 14px;
+  padding: var(--space-md);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-base) var(--ease-out);
+}
+
+.query-card:hover {
+  box-shadow: var(--shadow-md);
 }
 
 .query-card label {
@@ -341,7 +439,7 @@ function formatCell(value: unknown) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   flex-wrap: wrap;
 }
 
@@ -352,16 +450,22 @@ function formatCell(value: unknown) {
 
 .answer-card {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background:
     linear-gradient(145deg, rgba(14, 165, 233, 0.09), rgba(236, 253, 245, 0.62)),
     #ffffff;
-  padding: 12px;
+  padding: var(--space-md);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-base) var(--ease-out);
+}
+
+.answer-card:hover {
+  box-shadow: var(--shadow-md);
 }
 
 .answer-content,
 .answer-card p {
-  margin: 8px 0 0;
+  margin: var(--space-sm) 0 0;
   white-space: normal;
   word-break: break-word;
   line-height: 1.7;
@@ -373,18 +477,18 @@ function formatCell(value: unknown) {
 }
 
 .answer-content :deep(p) {
-  margin: 8px 0 0;
+  margin: var(--space-sm) 0 0;
 }
 
 .answer-content :deep(ul),
 .answer-content :deep(ol) {
-  margin: 8px 0 0;
-  padding-left: 20px;
+  margin: var(--space-sm) 0 0;
+  padding-left: var(--space-xl);
 }
 
 .answer-content :deep(code) {
   border: 1px solid rgba(14, 143, 179, 0.18);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: rgba(14, 165, 233, 0.08);
   padding: 1px 5px;
   color: #075985;
@@ -394,35 +498,103 @@ function formatCell(value: unknown) {
   color: #0e7490;
   font-weight: 700;
   text-decoration: none;
+  transition: color var(--transition-fast) var(--ease-out);
 }
 
 .answer-content :deep(a:hover) {
   text-decoration: underline;
+  color: var(--accent);
 }
 
 .audit-card {
   display: grid;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .audit-card small {
   color: var(--muted);
 }
 
+.cypher-shell {
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: var(--radius-lg);
+  background: #0f172a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), var(--shadow-md);
+}
+
+.cypher-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-sm);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+  padding: var(--space-sm) var(--space-sm);
+  color: #e2e8f0;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.cypher-toolbar small {
+  color: #94a3b8;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.cypher-code {
+  max-height: 170px;
+  margin: 0;
+  overflow: auto;
+  padding: var(--space-md);
+  color: #dbeafe;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cypher-code code {
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.cypher-code :deep(.cypher-token-keyword) {
+  color: #67e8f9;
+  font-weight: 800;
+}
+
+.cypher-code :deep(.cypher-token-label) {
+  color: #fde68a;
+}
+
+.cypher-code :deep(.cypher-token-property) {
+  color: #86efac;
+}
+
+.cypher-code :deep(.cypher-token-string) {
+  color: #fca5a5;
+}
+
 .audit-graph-shell {
   display: grid;
-  gap: 8px;
+  gap: var(--space-sm);
   border: 1px solid rgba(14, 143, 179, 0.18);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.82);
-  padding: 10px;
+  padding: var(--space-sm);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-base) var(--ease-out);
+}
+
+.audit-graph-shell:hover {
+  box-shadow: var(--shadow-md);
 }
 
 .audit-graph-header {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 10px;
+  gap: var(--space-sm);
   flex-wrap: wrap;
 }
 
@@ -431,30 +603,7 @@ function formatCell(value: unknown) {
   font-weight: 800;
 }
 
-.table-wrap {
-  overflow: auto;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-th,
-td {
-  border: 1px solid var(--line);
-  padding: 8px;
-  text-align: left;
-  vertical-align: top;
-}
-
 .audit-graph {
   min-height: 360px;
-}
-
-code {
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 </style>

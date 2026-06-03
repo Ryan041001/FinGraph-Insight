@@ -138,13 +138,20 @@ function deleteSelectedReport() {
 .header-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   background: linear-gradient(135deg, rgba(14, 165, 233, 0.1), rgba(99, 102, 241, 0.08));
   color: #0369a1;
-  padding: 8px 16px;
-  border-radius: 999px;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-xl);
   font-size: 14px;
   font-weight: 600;
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
+}
+
+.header-badge:hover {
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
 }
 
 .empty-state {
@@ -152,8 +159,8 @@ function deleteSelectedReport() {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 60px 24px;
+  gap: var(--space-md);
+  padding: var(--space-2xl) var(--space-xl);
   text-align: center;
   color: var(--muted);
 }
@@ -171,50 +178,53 @@ function deleteSelectedReport() {
 
 .empty-icon {
   color: #cbd5e1;
+  opacity: 0.6;
 }
 
 .reports-layout {
   display: grid;
   grid-template-columns: minmax(260px, 340px) 1fr;
-  gap: 20px;
+  gap: var(--space-xl);
   align-items: start;
 }
 
 .report-list-panel {
   display: grid;
-  gap: 14px;
+  gap: var(--space-md);
   align-content: start;
 }
 
 .report-list {
   display: grid;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .report-list-item {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-sm);
   width: 100%;
-  border: 1px solid var(--line);
+  border: 1.5px solid var(--line);
   border-radius: var(--radius-sm);
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.9));
   color: var(--ink);
   text-align: left;
-  padding: 12px;
-  transition: all 180ms ease;
+  padding: var(--space-sm);
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
   cursor: pointer;
 }
 
 .report-list-item:hover {
   border-color: var(--line-strong);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
+  transform: translateX(2px);
 }
 
 .report-list-item.active {
   border-color: var(--accent);
-  background: linear-gradient(145deg, rgba(14, 165, 233, 0.08), rgba(99, 102, 241, 0.05));
-  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
+  background: linear-gradient(145deg, rgba(14, 165, 233, 0.1), rgba(99, 102, 241, 0.06));
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15), var(--shadow-sm);
 }
 
 .report-list-icon {
@@ -226,11 +236,17 @@ function deleteSelectedReport() {
   background: rgba(14, 165, 233, 0.1);
   color: var(--accent);
   flex-shrink: 0;
+  transition: all var(--transition-base) var(--ease-out);
+}
+
+.report-list-item:hover .report-list-icon {
+  transform: scale(1.1);
 }
 
 .report-list-item.active .report-list-icon {
   background: linear-gradient(135deg, #0ea5e9, #6366f1);
   color: #ffffff;
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
 }
 
 .report-list-info {
@@ -251,7 +267,7 @@ function deleteSelectedReport() {
 
 .report-detail {
   display: grid;
-  gap: 20px;
+  gap: var(--space-xl);
 }
 
 .report-detail h2 {
@@ -264,17 +280,23 @@ function deleteSelectedReport() {
   color: #475569;
   line-height: 1.7;
   font-size: 15px;
-  padding: 16px;
+  padding: var(--space-lg);
   border-radius: var(--radius-sm);
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.88));
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.9));
   border: 1px solid var(--line);
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
+}
+
+.report-summary:hover {
+  box-shadow: var(--shadow-sm);
 }
 
 .report-section h3 {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 0 0 12px;
+  gap: var(--space-sm);
+  margin: 0 0 var(--space-md);
   font-size: 15px;
   color: #334155;
 }
@@ -285,26 +307,28 @@ function deleteSelectedReport() {
 
 .factor-list {
   display: grid;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .factor-card {
-  border: 1px solid var(--line);
+  border: 1.5px solid var(--line);
   border-radius: var(--radius-sm);
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.9));
-  padding: 14px;
-  transition: all 180ms ease;
+  padding: var(--space-md);
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
 }
 
 .factor-card:hover {
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .factor-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
 }
 
 .factor-dot {
@@ -316,17 +340,17 @@ function deleteSelectedReport() {
 
 .factor-dot.high {
   background: #ef4444;
-  box-shadow: 0 0 6px rgba(239, 68, 68, 0.3);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
 }
 
 .factor-dot.medium {
   background: #f59e0b;
-  box-shadow: 0 0 6px rgba(245, 158, 11, 0.3);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
 }
 
 .factor-dot.low {
   background: #10b981;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
 }
 
 .factor-card strong {
@@ -343,19 +367,21 @@ function deleteSelectedReport() {
 
 .evidence-list {
   display: grid;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .evidence-card {
-  border: 1px solid var(--line);
+  border: 1.5px solid var(--line);
   border-radius: var(--radius-sm);
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.9));
-  padding: 14px;
-  transition: all 180ms ease;
+  padding: var(--space-md);
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base) var(--ease-out);
 }
 
 .evidence-card:hover {
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .evidence-card strong {
@@ -364,7 +390,7 @@ function deleteSelectedReport() {
 }
 
 .evidence-card p {
-  margin: 6px 0 10px;
+  margin: var(--space-xs) 0 var(--space-sm);
   color: #475569;
   font-size: 13px;
   line-height: 1.55;
@@ -373,14 +399,14 @@ function deleteSelectedReport() {
 .evidence-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--space-sm);
   align-items: center;
 }
 
 .evidence-meta span {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
   font-size: 12px;
   color: var(--muted);
 }
@@ -388,19 +414,20 @@ function deleteSelectedReport() {
 .confidence-badge {
   background: rgba(14, 165, 233, 0.1);
   color: #0369a1;
-  padding: 3px 8px;
-  border-radius: 999px;
+  padding: 3px var(--space-sm);
+  border-radius: var(--radius-xl);
   font-weight: 600;
+  box-shadow: var(--shadow-xs);
 }
 
 .disclaimer {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   margin: 0;
   color: var(--muted);
   font-size: 13px;
-  padding-top: 10px;
+  padding-top: var(--space-sm);
   border-top: 1px dashed var(--line);
 }
 
